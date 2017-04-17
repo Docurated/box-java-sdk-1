@@ -220,6 +220,11 @@ public class BoxEvent extends BoxResource {
         ITEM_PREVIEW,
 
         /**
+         * A representation of a file was accessed. This may include preview or offline access.
+         */
+        CONTENT_ACCESS,
+
+        /**
          * A file or folder was moved.
          */
         ITEM_MOVE,
