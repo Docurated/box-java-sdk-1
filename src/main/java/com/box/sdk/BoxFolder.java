@@ -29,7 +29,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         "description", "size", "path_collection", "created_by", "modified_by", "trashed_at", "purged_at",
         "content_created_at", "content_modified_at", "owned_by", "shared_link", "folder_upload_email", "parent",
         "item_status", "item_collection", "sync_state", "has_collaborations", "permissions", "tags",
-        "can_non_owners_invite", "collections"};
+        "can_non_owners_invite", "collections", "watermark_info"};
 
     private static final URLTemplate CREATE_FOLDER_URL = new URLTemplate("folders");
     private static final URLTemplate CREATE_WEB_LINK_URL = new URLTemplate("web_links");
@@ -42,6 +42,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     private static final URLTemplate GET_ITEMS_URL = new URLTemplate("folders/%s/items/");
     private static final URLTemplate SEARCH_URL_TEMPLATE = new URLTemplate("search");
     private static final URLTemplate METADATA_URL_TEMPLATE = new URLTemplate("folders/%s/metadata/%s/%s");
+    private static final URLTemplate UPLOAD_SESSION_URL_TEMPLATE = new URLTemplate("files/upload-session");
 
     /**
      * Constructs a BoxFolder for a folder with a given ID.
@@ -50,6 +51,14 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
      */
     public BoxFolder(BoxAPIConnection api, String id) {
         super(api, id);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected URL getItemURL() {
+        return FOLDER_INFO_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
     }
 
     /**
@@ -119,6 +128,82 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         BoxCollaboration.Info info = newCollaboration.new Info(responseJSON);
         return info;
     }
+    /**
+     * Adds a collaborator to this folder.
+     * @param  collaborator the collaborator to add.
+     * @param  role         the role of the collaborator.
+     * @param  notify       the user/group should receive email notification of the collaboration or not.
+     * @param  canViewPath  the view path collaboration feature is enabled or not.
+     * View path collaborations allow the invitee to see the entire ancestral path to the associated folder.
+     * The user will not gain privileges in any ancestral folder.
+     * @return              info about the new collaboration.
+     */
+    public BoxCollaboration.Info collaborate(BoxCollaborator collaborator, BoxCollaboration.Role role,
+                                             Boolean notify, Boolean canViewPath) {
+        JsonObject accessibleByField = new JsonObject();
+        accessibleByField.add("id", collaborator.getID());
+
+        if (collaborator instanceof BoxUser) {
+            accessibleByField.add("type", "user");
+        } else if (collaborator instanceof BoxGroup) {
+            accessibleByField.add("type", "group");
+        } else {
+            throw new IllegalArgumentException("The given collaborator is of an unknown type.");
+        }
+
+        return this.collaborate(accessibleByField, role, notify, canViewPath);
+    }
+
+    /**
+     * Adds a collaborator to this folder. An email will be sent to the collaborator if they don't already have a Box
+     * account.
+     * @param  email the email address of the collaborator to add.
+     * @param  role  the role of the collaborator.
+     * @param  notify       the user/group should receive email notification of the collaboration or not.
+     * @param  canViewPath  the view path collaboration feature is enabled or not.
+     * View path collaborations allow the invitee to see the entire ancestral path to the associated folder.
+     * The user will not gain privileges in any ancestral folder.
+     * @return       info about the new collaboration.
+     */
+    public BoxCollaboration.Info collaborate(String email, BoxCollaboration.Role role,
+                                             Boolean notify, Boolean canViewPath) {
+        JsonObject accessibleByField = new JsonObject();
+        accessibleByField.add("login", email);
+        accessibleByField.add("type", "user");
+
+        return this.collaborate(accessibleByField, role, notify, canViewPath);
+    }
+
+    private BoxCollaboration.Info collaborate(JsonObject accessibleByField, BoxCollaboration.Role role,
+                                              Boolean notify, Boolean canViewPath) {
+        BoxAPIConnection api = this.getAPI();
+        URL url = ADD_COLLABORATION_URL.build(api.getBaseURL());
+
+        JsonObject itemField = new JsonObject();
+        itemField.add("id", this.getID());
+        itemField.add("type", "folder");
+
+        JsonObject requestJSON = new JsonObject();
+        requestJSON.add("item", itemField);
+        requestJSON.add("accessible_by", accessibleByField);
+        requestJSON.add("role", role.toJSONString());
+        if (canViewPath != null) {
+            requestJSON.add("can_view_path", canViewPath.booleanValue());
+        }
+
+        BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
+        if (notify != null) {
+            request.addHeader("notify", notify.toString());
+        }
+
+        request.setBody(requestJSON.toString());
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+
+        BoxCollaboration newCollaboration = new BoxCollaboration(api, responseJSON.get("id").asString());
+        BoxCollaboration.Info info = newCollaboration.new Info(responseJSON);
+        return info;
+    }
 
     @Override
     public BoxSharedLink createSharedLink(BoxSharedLink.Access access, Date unshareDate,
@@ -156,6 +241,8 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         return collaborations;
     }
+
+
 
     @Override
     public BoxFolder.Info getInfo() {
@@ -286,8 +373,8 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         updateInfo.add("name", newName);
 
         request.setBody(updateInfo.toString());
-        BoxAPIResponse response = request.send();
-        response.disconnect();
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        response.getJSON();
     }
 
     /**
@@ -533,6 +620,43 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     }
 
     /**
+
+     * Used to retrieve the watermark for the folder.
+     * If the folder does not have a watermark applied to it, a 404 Not Found will be returned by API.
+     * @param fields the fields to retrieve.
+     * @return the watermark associated with the folder.
+     */
+    public BoxWatermark getWatermark(String... fields) {
+        return this.getWatermark(FOLDER_INFO_URL_TEMPLATE, fields);
+    }
+
+    /**
+     * Used to apply or update the watermark for the folder.
+     * @return the watermark associated with the folder.
+     */
+    public BoxWatermark applyWatermark() {
+        return this.applyWatermark(FOLDER_INFO_URL_TEMPLATE, BoxWatermark.WATERMARK_DEFAULT_IMPRINT);
+    }
+
+    /**
+     * Removes a watermark from the folder.
+     * If the folder did not have a watermark applied to it, a 404 Not Found will be returned by API.
+     */
+    public void removeWatermark() {
+        this.removeWatermark(FOLDER_INFO_URL_TEMPLATE);
+    }
+
+    /**
+     * Used to retrieve all metadata associated with the folder.
+     *
+     * @param fields the optional fields to retrieve.
+     * @return An iterable of metadata instances associated with the folder
+     */
+    public Iterable<Metadata> getAllMetadata(String... fields) {
+        return Metadata.getAllMetadata(this, fields);
+    }
+
+    /**
      * This method is deprecated, please use the {@link BoxSearch} class instead.
      * Searches this folder and all descendant folders using a given queryPlease use BoxSearch Instead.
      * @param  query the search query.
@@ -684,6 +808,46 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     }
 
     /**
+     * Creates an upload session to create a new file in chunks.
+     * This will first verify that the file can be created and then open a session for uploading pieces of the file.
+     * @param fileName the name of the file to be created
+     * @param fileSize the size of the file that will be uploaded
+     * @return the created upload session instance
+     */
+    public BoxFileUploadSession.Info createUploadSession(String fileName, long fileSize) {
+
+        URL url = UPLOAD_SESSION_URL_TEMPLATE.build(this.getAPI().getBaseUploadURL());
+        BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "POST");
+
+        JsonObject body = new JsonObject();
+        body.add("folder_id", this.getID());
+        body.add("file_name", fileName);
+        body.add("file_size", fileSize);
+        request.setBody(body.toString());
+
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
+
+        String sessionId = jsonObject.get("upload_session_id").asString();
+        BoxFileUploadSession session = new BoxFileUploadSession(this.getAPI(), sessionId);
+
+        return session.new Info(jsonObject);
+    }
+
+    /**
+     * Creates a new file.
+     * @param inputStream the stream instance that contains the data.
+     * @param fileName the name of the file to be created.
+     * @param fileSize the size of the file that will be uploaded.
+     * @return the created file instance.
+     */
+    public BoxFile.Info uploadLargeFile(InputStream inputStream, String fileName, long fileSize) {
+        URL url = UPLOAD_SESSION_URL_TEMPLATE.build(this.getAPI().getBaseUploadURL());
+
+        return LargeFileUpload.upload(this.getAPI(), this.getID(), inputStream, url, fileName, fileSize);
+    }
+
+    /**
      * Contains information about a BoxFolder.
      */
     public class Info extends BoxItem.Info {
@@ -692,6 +856,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         private SyncState syncState;
         private EnumSet<Permission> permissions;
         private boolean canNonOwnersInvite;
+        private boolean isWatermarked;
 
         /**
          * Constructs an empty Info object.
@@ -784,6 +949,14 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
             return this.canNonOwnersInvite;
         }
 
+        /**
+         * Gets flag indicating whether this file is Watermarked.
+         * @return whether the file is watermarked or not
+         */
+        public boolean getIsWatermarked() {
+            return this.isWatermarked;
+        }
+
         @Override
         public BoxFolder getResource() {
             return BoxFolder.this;
@@ -813,6 +986,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
             } else if (memberName.equals("can_non_owners_invite")) {
                 this.canNonOwnersInvite = value.asBoolean();
+            } else if (memberName.equals("watermark_info")) {
+                JsonObject jsonObject = value.asObject();
+                this.isWatermarked = jsonObject.get("is_watermarked").asBoolean();
             }
         }
 
@@ -853,17 +1029,17 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         /**
          * The folder is synced.
          */
-        SYNCED ("synced"),
+        SYNCED("synced"),
 
         /**
          * The folder is not synced.
          */
-        NOT_SYNCED ("not_synced"),
+        NOT_SYNCED("not_synced"),
 
         /**
          * The folder is partially synced.
          */
-        PARTIALLY_SYNCED ("partially_synced");
+        PARTIALLY_SYNCED("partially_synced");
 
         private final String jsonValue;
 
@@ -887,37 +1063,37 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         /**
          * The user can download the folder.
          */
-        CAN_DOWNLOAD ("can_download"),
+        CAN_DOWNLOAD("can_download"),
 
         /**
          * The user can upload to the folder.
          */
-        CAN_UPLOAD ("can_upload"),
+        CAN_UPLOAD("can_upload"),
 
         /**
          * The user can rename the folder.
          */
-        CAN_RENAME ("can_rename"),
+        CAN_RENAME("can_rename"),
 
         /**
          * The user can delete the folder.
          */
-        CAN_DELETE ("can_delete"),
+        CAN_DELETE("can_delete"),
 
         /**
          * The user can share the folder.
          */
-        CAN_SHARE ("can_share"),
+        CAN_SHARE("can_share"),
 
         /**
          * The user can invite collaborators to the folder.
          */
-        CAN_INVITE_COLLABORATOR ("can_invite_collaborator"),
+        CAN_INVITE_COLLABORATOR("can_invite_collaborator"),
 
         /**
          * The user can set the access level for shared links to the folder.
          */
-        CAN_SET_SHARE_ACCESS ("can_set_share_access");
+        CAN_SET_SHARE_ACCESS("can_set_share_access");
 
         private final String jsonValue;
 

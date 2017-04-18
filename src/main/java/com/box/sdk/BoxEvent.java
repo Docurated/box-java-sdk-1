@@ -220,6 +220,11 @@ public class BoxEvent extends BoxResource {
         ITEM_PREVIEW,
 
         /**
+         * A representation of a file was accessed. This may include preview or offline access.
+         */
+        CONTENT_ACCESS,
+
+        /**
          * A file or folder was moved.
          */
         ITEM_MOVE,
@@ -604,7 +609,11 @@ public class BoxEvent extends BoxResource {
         /**
          * Deletion of metadata instance. This is an enterprise-only event.
          */
-        METADATA_INSTANCE_DELETE;
+        METADATA_INSTANCE_DELETE,
 
+        /**
+         * Content Workflow upload policy violation. This is an enterprise-only event.
+         */
+        CONTENT_WORKFLOW_UPLOAD_POLICY_VIOLATION;
     }
 }

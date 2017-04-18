@@ -9,7 +9,7 @@ sourceCompatibility = 1.6
 
 group = 'com.box'
 archivesBaseName = 'box-java-sdk'
-version = '2.2.2-SNAPSHOT'
+version = '2.4.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
@@ -28,6 +28,11 @@ dependencies {
     testCompile 'org.slf4j:slf4j-nop:1.7.7'
 }
 
+compileJava {
+    sourceCompatibility = 1.6
+    targetCompatibility = 1.6
+}
+
 javadoc {
     options.windowTitle 'Box Java SDK'
     options.noQualifiers 'all'
@@ -37,6 +42,7 @@ javadoc {
     options.noHelp true
     options.noDeprecatedList true
     options.noNavBar true
+    options.encoding 'utf-8'
     options.docEncoding 'utf-8'
     options.charSet 'utf-8'
     options.linkSource true
@@ -83,11 +89,33 @@ task sourcesJar(type: Jar) {
 task integrationTest(type: Test) {
     description 'Runs the integration tests.'
     group 'Verification'
-
+    testLogging.showStandardStreams = true
     useJUnit {
         includeCategories 'com.box.sdk.IntegrationTest'
+
     }
 }
+
+task integrationTestDebug(type: Test) {
+    description 'Runs the integration tests.'
+    group 'Verification'
+    testLogging.showStandardStreams = true
+    useJUnit {
+        includeCategories 'com.box.sdk.IntegrationTestDebug'
+
+    }
+}
+
+task integrationTestJWT(type: Test) {
+    description 'Runs the JWT based integration tests.'
+    group 'Verification'
+    testLogging.showStandardStreams = true
+    useJUnit {
+        includeCategories 'com.box.sdk.IntegrationTestJWT'
+
+    }
+}
+
 
 jacocoTestReport.dependsOn(integrationTest);
 
@@ -119,6 +147,8 @@ artifacts {
 test {
     useJUnit {
         excludeCategories 'com.box.sdk.IntegrationTest'
+        excludeCategories 'com.box.sdk.IntegrationTestDebug'
+        excludeCategories 'com.box.sdk.IntegrationTestJWT'
     }
 }
 

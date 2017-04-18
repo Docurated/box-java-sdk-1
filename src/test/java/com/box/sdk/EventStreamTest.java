@@ -29,7 +29,6 @@ public class EventStreamTest {
     @Category(IntegrationTest.class)
     public void receiveEventsForFolderCreateAndFolderDelete() throws InterruptedException {
         final LinkedBlockingQueue<BoxEvent> observedEvents = new LinkedBlockingQueue<BoxEvent>();
-
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         EventStream stream = new EventStream(api);
         stream.addListener(new EventListener() {
@@ -58,9 +57,20 @@ public class EventStreamTest {
 
         boolean createdEventFound = false;
         boolean deletedEventFound = false;
-        while (!createdEventFound || !deletedEventFound) {
+        int timeouts = 0;
+        while (timeouts < 3 && (!createdEventFound || !deletedEventFound)) {
             BoxEvent event = observedEvents.poll(1, TimeUnit.MINUTES);
-            BoxResource source = event.getSourceInfo().getResource();
+            if (null == event) {
+                timeouts++;
+                System.out.println("Time outs: " + timeouts);
+                continue;
+            }
+            BoxResource.Info  sourceInfo = event.getSourceInfo();
+            //  Some events may not have sourceInfo
+            if (sourceInfo == null) {
+                continue;
+            }
+            BoxResource source = sourceInfo.getResource();
             if (source instanceof BoxFolder) {
                 BoxFolder sourceFolder = (BoxFolder) source;
                 if (sourceFolder.getID().equals(expectedID)) {
