@@ -20,6 +20,7 @@ public class BoxEvent extends BoxResource {
     private BoxCollaborator.Info accessibleBy;
     private BoxUser.Info createdBy;
     private String sessionID;
+    private JsonObject rawEvent;
 
     /**
      * Constructs a BoxEvent from a JSON string.
@@ -33,6 +34,8 @@ public class BoxEvent extends BoxResource {
     BoxEvent(BoxAPIConnection api, JsonObject jsonObject) {
         super(api, jsonObject.get("event_id").asString());
 
+        this.rawEvent = jsonObject;
+
         for (JsonObject.Member member : jsonObject) {
             if (member.getValue().isNull()) {
                 continue;
@@ -40,6 +43,14 @@ public class BoxEvent extends BoxResource {
 
             this.parseJsonMember(member);
         }
+    }
+
+    /**
+     * Gets the event as it is returned from the Box API
+     * @return the raw event from the Box API
+     */
+    public JsonObject getRawEvent() {
+        return rawEvent;
     }
 
     /**
