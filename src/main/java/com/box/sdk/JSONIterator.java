@@ -1,30 +1,27 @@
 package com.box.sdk;
 
+import com.eclipsesource.json.Json;
+import com.eclipsesource.json.JsonArray;
+import com.eclipsesource.json.JsonObject;
+import com.eclipsesource.json.JsonValue;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import com.eclipsesource.json.JsonArray;
-import com.eclipsesource.json.JsonObject;
-import com.eclipsesource.json.JsonValue;
-
-class JSONIterator implements Iterator<JsonObject> {
+class JsonIterator {
     private final BoxAPIConnection api;
     private final URL url;
-
-    private long limit;
-    private long offset;
-    private long totalCount;
+    private PagingParameters pagingParameters;
     private boolean hasMorePages;
     private Iterator<JsonValue> currentPage;
     private JsonObject nextJsonObject;
     private Filter<JsonObject> filter;
 
-    public JSONIterator(BoxAPIConnection api, URL url, long limit) {
+    JsonIterator(BoxAPIConnection api, URL url, PagingParameters pagingParameters) {
         this.api = api;
         this.url = url;
-        this.limit = limit;
+        this.pagingParameters = pagingParameters;
     }
 
     public boolean hasNext() {
@@ -58,10 +55,7 @@ class JSONIterator implements Iterator<JsonObject> {
     }
 
     private void loadNextPage() {
-        String existingQuery = this.url.getQuery();
-        QueryStringBuilder builder = new QueryStringBuilder(existingQuery);
-        builder.appendParam("limit", this.limit);
-        builder.appendParam("offset", this.offset);
+        QueryStringBuilder builder = pagingParameters.asQueryStringBuilder();
 
         URL url;
         try {
@@ -74,15 +68,33 @@ class JSONIterator implements Iterator<JsonObject> {
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         String json = response.getJSON();
 
-        JsonObject jsonObject = JsonObject.readFrom(json);
-        String totalCountString = jsonObject.get("total_count").toString();
-        this.totalCount = Double.valueOf(totalCountString).longValue();
-        String offsetString = jsonObject.get("offset").toString();
-        this.hasMorePages = (this.offset + this.limit) < this.totalCount;
-        this.offset = Double.valueOf(offsetString).longValue() + this.limit;
+        JsonObject responseObject = Json.parse(json).asObject();
 
-        JsonArray jsonArray = jsonObject.get("entries").asArray();
+        if (pagingParameters.isMarkerBasedPaging()) {
+            continueAsMarkerBasedPaging(responseObject);
+        } else {
+            continueAsOffsetBasedPaging(responseObject);
+        }
+
+        JsonArray jsonArray = responseObject.get("entries").asArray();
         this.currentPage = jsonArray.iterator();
+    }
+
+    private void continueAsOffsetBasedPaging(JsonObject response) {
+        try {
+            long offset = response.get("offset").asLong();
+            long totalCount = response.get("total_count").asLong();
+            hasMorePages = offset + pagingParameters.getLimit() < totalCount;
+            this.pagingParameters = pagingParameters.nextOffset(offset);
+        } catch (NullPointerException e) {
+            hasMorePages = false;
+        }
+    }
+
+    private void continueAsMarkerBasedPaging(JsonObject response) {
+        String nextMarker = response.getString("next_marker", null);
+        this.hasMorePages = nextMarker != null && nextMarker.length() > 0;
+        this.pagingParameters = pagingParameters.nextMarker(nextMarker);
     }
 
     private JsonObject loadNextJsonObject() {

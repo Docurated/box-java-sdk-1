@@ -4,7 +4,7 @@ package com.box.sdk;
  * This API connection uses a shared link (along with an optional password) to authenticate with the Box API. It wraps a
  * preexisting BoxAPIConnection in order to provide additional access to items that are accessible with a shared link.
  */
-class SharedLinkAPIConnection extends BoxAPIConnection {
+public class SharedLinkAPIConnection extends BoxAPIConnection {
     private final BoxAPIConnection wrappedConnection;
     private final String sharedLink;
     private final String sharedLinkPassword;
@@ -14,7 +14,9 @@ class SharedLinkAPIConnection extends BoxAPIConnection {
     }
 
     SharedLinkAPIConnection(BoxAPIConnection connection, String sharedLink, String sharedLinkPassword) {
-        super(null);
+        //this is a hack to maintain backward compatibility and to prevent confusing the compiler
+        //between two possible BoxApiConnection constructors for super(null)
+        super("");
 
         this.wrappedConnection = connection;
         this.sharedLink = sharedLink;
@@ -82,23 +84,63 @@ class SharedLinkAPIConnection extends BoxAPIConnection {
     }
 
     @Override
-    public void setAutoRefresh(boolean autoRefresh) {
-        this.wrappedConnection.setAutoRefresh(autoRefresh);
-    }
-
-    @Override
     public boolean getAutoRefresh() {
         return this.wrappedConnection.getAutoRefresh();
     }
 
     @Override
-    public int getMaxRequestAttempts() {
-        return this.wrappedConnection.getMaxRequestAttempts();
+    public void setAutoRefresh(boolean autoRefresh) {
+        this.wrappedConnection.setAutoRefresh(autoRefresh);
     }
 
+    /**
+     * Sets the total maximum number of times an API request will be tried when error responses
+     * are received.
+     *
+     * @return the maximum number of request attempts.
+     * @deprecated getMaxRetryAttempts is preferred because it more clearly gets the number
+     * of times a request should be retried after an error response is received.
+     */
+    @Deprecated
+    @Override
+    public int getMaxRequestAttempts() {
+        return this.wrappedConnection.getMaxRetryAttempts() + 1;
+    }
+
+    /**
+     * Sets the total maximum number of times an API request will be tried when error responses
+     * are received.
+     *
+     * @param attempts the maximum number of request attempts.
+     * @deprecated setMaxRetryAttempts is preferred because it more clearly sets the number
+     * of times a request should be retried after an error response is received.
+     */
+    @Deprecated
     @Override
     public void setMaxRequestAttempts(int attempts) {
-        this.wrappedConnection.setMaxRequestAttempts(attempts);
+        this.wrappedConnection.setMaxRetryAttempts(attempts - 1);
+    }
+
+    /**
+     * Gets the maximum number of times an API request will be retried after an error response
+     * is received.
+     *
+     * @return the maximum number of request attempts.
+     */
+    @Override
+    public int getMaxRetryAttempts() {
+        return this.wrappedConnection.getMaxRetryAttempts();
+    }
+
+    /**
+     * Sets the maximum number of times an API request will be retried after an error response
+     * is received.
+     *
+     * @param attempts the maximum number of request attempts.
+     */
+    @Override
+    public void setMaxRetryAttempts(int attempts) {
+        this.wrappedConnection.setMaxRetryAttempts(attempts);
     }
 
     @Override
@@ -128,6 +170,7 @@ class SharedLinkAPIConnection extends BoxAPIConnection {
 
     /**
      * Gets the shared link used for accessing shared items.
+     *
      * @return the shared link used for accessing shared items.
      */
     String getSharedLink() {
@@ -136,6 +179,7 @@ class SharedLinkAPIConnection extends BoxAPIConnection {
 
     /**
      * Gets the shared link password used for accessing shared items.
+     *
      * @return the shared link password used for accessing shared items.
      */
     String getSharedLinkPassword() {

@@ -1,9 +1,11 @@
 package com.box.sdk;
-import java.net.URL;
 
+import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+
 /**
  * Represents search on Box. This class can be used to search through your box instance.
  * In addition this lets you take advantage of all the advanced search features.
@@ -14,12 +16,16 @@ import com.eclipsesource.json.JsonValue;
  */
 public class BoxSearch {
 
-    private static final URLTemplate SEARCH_URL_TEMPLATE = new URLTemplate("search");
+    /**
+     * Search URL Template.
+     */
+    public static final URLTemplate SEARCH_URL_TEMPLATE = new URLTemplate("search");
     private final BoxAPIConnection api;
 
     /**
      * Constructs a Search to be used by everything.
-     * @param  api the API connection to be used by the search.
+     *
+     * @param api the API connection to be used by the search.
      */
     public BoxSearch(BoxAPIConnection api) {
         this.api = api;
@@ -27,22 +33,23 @@ public class BoxSearch {
 
     /**
      * Searches all descendant folders using a given query and query parameters.
-     * @param  offset is the starting position.
-     * @param  limit the number of search results CANNONT Exceed 1000.
-     * @param  bsp containing query and advanced search capabilities.
+     *
+     * @param offset is the starting position.
+     * @param limit  the maximum number of items to return. The default is 30 and the maximum is 200.
+     * @param bsp    containing query and advanced search capabilities.
      * @return a PartialCollection containing the search results.
      */
     public PartialCollection<BoxItem.Info> searchRange(long offset, long limit, final BoxSearchParameters bsp) {
         QueryStringBuilder builder = bsp.getQueryParameters()
-                .appendParam("limit", limit)
-                .appendParam("offset", offset);
+            .appendParam("limit", limit)
+            .appendParam("offset", offset);
         URL url = SEARCH_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         String totalCountString = responseJSON.get("total_count").toString();
         long fullSize = Double.valueOf(totalCountString).longValue();
-        PartialCollection<BoxItem.Info> results = new PartialCollection<BoxItem.Info>(offset, limit, fullSize);
+        PartialCollection<BoxItem.Info> results = new PartialCollection<>(offset, limit, fullSize);
         JsonArray jsonArray = responseJSON.get("entries").asArray();
         for (JsonValue value : jsonArray) {
             JsonObject jsonObject = value.asObject();
@@ -53,8 +60,41 @@ public class BoxSearch {
         }
         return results;
     }
+
+    /**
+     * Searches all descendant folders using a given query and query parameters.
+     *
+     * @param offset is the starting position.
+     * @param limit  the maximum number of items to return. The default is 30 and the maximum is 200.
+     * @param bsp    containing query and advanced search capabilities.
+     * @return a PartialCollection containing the search results.
+     */
+    public PartialCollection<BoxSearchSharedLink> searchRangeIncludeSharedLinks(long offset, long limit,
+                                                                                final BoxSearchParameters bsp) {
+        QueryStringBuilder builder = bsp.getQueryParameters()
+            .appendParam("include_recent_shared_links", "true")
+            .appendParam("limit", limit)
+            .appendParam("offset", offset);
+        URL url = SEARCH_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString());
+        BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
+        String totalCountString = responseJSON.get("total_count").toString();
+        long fullSize = Double.valueOf(totalCountString).longValue();
+        PartialCollection<BoxSearchSharedLink> results = new PartialCollection<>(offset,
+            limit, fullSize);
+        JsonArray jsonArray = responseJSON.get("entries").asArray();
+        for (JsonValue value : jsonArray) {
+            JsonObject jsonObject = value.asObject();
+            BoxSearchSharedLink parsedItem = new BoxSearchSharedLink(jsonObject, this.getAPI());
+            results.add(parsedItem);
+        }
+        return results;
+    }
+
     /**
      * Gets the API connection used by this resource.
+     *
      * @return the API connection used by this resource.
      */
     public BoxAPIConnection getAPI() {

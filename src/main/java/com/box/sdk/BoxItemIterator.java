@@ -1,35 +1,40 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.util.Iterator;
+import static com.box.sdk.PagingParameters.offset;
 
 import com.eclipsesource.json.JsonObject;
+import java.net.URL;
+import java.util.Iterator;
 
 class BoxItemIterator implements Iterator<BoxItem.Info> {
     private static final long LIMIT = 1000;
 
     private final BoxAPIConnection api;
-    private final JSONIterator jsonIterator;
+    private final JsonIterator iterator;
 
-    BoxItemIterator(BoxAPIConnection api, URL url) {
+    BoxItemIterator(BoxAPIConnection api, URL url, PagingParameters pagingParameters) {
         this.api = api;
-
-        this.jsonIterator = new JSONIterator(api, url, LIMIT);
-        this.jsonIterator.setFilter(new Filter<JsonObject>() {
-            @Override
-            public boolean shouldInclude(JsonObject jsonObject) {
-                String type = jsonObject.get("type").asString();
-                return (type.equals("file") || type.equals("folder") || type.equals("web_link"));
-            }
+        this.iterator = new JsonIterator(api, url, pagingParameters);
+        this.iterator.setFilter(jsonObject -> {
+            String type = jsonObject.get("type").asString();
+            return (type.equals("file") || type.equals("folder") || type.equals("web_link"));
         });
     }
 
+    BoxItemIterator(BoxAPIConnection api, URL url) {
+        this(api, url, offset(0, LIMIT));
+    }
+
+    BoxItemIterator(BoxAPIConnection api, URL url, long limit, long offset) {
+        this(api, url, offset(offset, limit));
+    }
+
     public boolean hasNext() {
-        return this.jsonIterator.hasNext();
+        return this.iterator.hasNext();
     }
 
     public BoxItem.Info next() {
-        JsonObject nextJSONObject = this.jsonIterator.next();
+        JsonObject nextJSONObject = this.iterator.next();
         String type = nextJSONObject.get("type").asString();
         String id = nextJSONObject.get("id").asString();
 

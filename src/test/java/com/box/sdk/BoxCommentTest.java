@@ -1,98 +1,154 @@
 package com.box.sdk;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-
+import com.eclipsesource.json.JsonObject;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.io.IOException;
+import java.util.List;
+import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
 public class BoxCommentTest {
-    @Test
-    @Category(IntegrationTest.class)
-    public void replyToCommentSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[replyToCommentSucceeds] Test File.txt";
-        byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
-        String firstMessage = "First message";
-        String replyMessage = "Reply message";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
+    @Rule
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+    private final BoxAPIConnection api = TestUtils.getAPIConnection();
 
-        BoxComment.Info firstCommentInfo = uploadedFile.addComment(firstMessage);
-        BoxComment firstComment = firstCommentInfo.getResource();
-
-        BoxComment.Info replyCommentInfo = firstComment.reply(replyMessage);
-
-        assertThat(replyCommentInfo.getMessage(), is(equalTo(replyMessage)));
-        assertThat(replyCommentInfo.getIsReplyComment(), is(true));
-        assertThat(replyCommentInfo.getItem().getID(), is(equalTo(uploadedFile.getID())));
-
-        uploadedFile.delete();
+    @Before
+    public void setUpBaseUrl() {
+        api.setMaxRetryAttempts(1);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void getCommentInfoSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[getCommentInfoSucceeds] Test File.txt";
-        byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
-        String message = "Comment message";
+    public void testDeleteACommentSucceeds() {
+        final String commentID = "12345";
+        final String deleteCommentURL = "/2.0/comments/" + commentID;
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        BoxComment.Info commentInfo = uploadedFile.addComment(message);
-        BoxComment comment = commentInfo.getResource();
-        commentInfo = comment.getInfo();
+        wireMockRule.stubFor(WireMock.delete(WireMock.urlPathEqualTo(deleteCommentURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withStatus(204)));
 
-        assertThat(commentInfo.getMessage(), is(equalTo(message)));
-        assertThat(commentInfo.getItem().getID(), is(equalTo(uploadedFile.getID())));
-
-        uploadedFile.delete();
+        new BoxComment(this.api, commentID).delete();
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void changeCommentMessageSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[changeCommentMessageSucceeds] Test File.txt";
-        byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
-        String originalMessage = "Original message";
-        String changedMessage = "Changed message";
+    public void testChangeACommentsMessageSucceedsAndSendCorrectJson() throws IOException {
+        final String commentID = "12345";
+        final String changeCommentURL = "/2.0/comments/" + commentID;
+        final String updatedMessage = "This is an updated message.";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        BoxComment.Info commentInfo = uploadedFile.addComment(originalMessage);
-        BoxComment comment = commentInfo.getResource();
-        commentInfo = comment.changeMessage(changedMessage);
+        JsonObject updateCommentObject = new JsonObject()
+            .add("message", updatedMessage);
 
-        assertThat(commentInfo.getMessage(), is(equalTo(changedMessage)));
+        String result = TestUtils.getFixture("BoxComment/UpdateCommentsMessage200");
 
-        uploadedFile.delete();
+        wireMockRule.stubFor(WireMock.put(WireMock.urlPathEqualTo(changeCommentURL))
+            .withRequestBody(WireMock.equalToJson(updateCommentObject.toString()))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxComment comment = new BoxComment(this.api, commentID);
+        BoxComment.Info commentInfo = comment.changeMessage(updatedMessage);
+
+        assertEquals(updatedMessage, commentInfo.getMessage());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void deleteCommentSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[deleteCommentSucceeds] Test File.txt";
-        byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
-        String message = "Comment message";
+    public void testCreateCommentSucceedsAndSendsCorrectJson() throws IOException {
+        final String createCommentURL = "/2.0/comments";
+        final String fileID = "2222";
+        final String commentID = "12345";
+        final String testCommentMesssage = "This is a test message.";
+        final String createdByLogin = "test@user.com";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        BoxComment.Info commentInfo = uploadedFile.addComment(message);
-        BoxComment comment = commentInfo.getResource();
-        comment.delete();
+        JsonObject itemObject = new JsonObject()
+            .add("type", "file")
+            .add("id", fileID);
 
-        uploadedFile.delete();
+        JsonObject postCommentObject = new JsonObject()
+            .add("item", itemObject)
+            .add("message", testCommentMesssage);
+
+        String result = TestUtils.getFixture("BoxComment/CreateComment201");
+
+        wireMockRule.stubFor(WireMock.post(WireMock.urlPathEqualTo(createCommentURL))
+            .withRequestBody(WireMock.equalToJson(postCommentObject.toString()))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        BoxComment.Info commentInfo = file.addComment(testCommentMesssage);
+
+        assertFalse(commentInfo.getIsReplyComment());
+        assertEquals(commentID, commentInfo.getID());
+        assertEquals(testCommentMesssage, commentInfo.getMessage());
+        assertEquals(createdByLogin, commentInfo.getCreatedBy().getLogin());
+        assertEquals(fileID, commentInfo.getItem().getID());
+    }
+
+    @Test
+    public void testGetCommentsOnFileSucceeds() throws IOException {
+        final String fileID = "12345";
+        final String fileCommentURL = "/2.0/files/" + fileID + "/comments";
+        final String firstCommentMessage = "@Test User default comment.";
+        final String firstCommentID = "1111";
+        final String firstCommentCreatedByLogin = "example@user.com";
+        final String secondCommentMessage = "@Example User This works.";
+        final String secondCommentID = "2222";
+        final String secondCommentCreatedByLogin = "test@user.com";
+
+        String result = TestUtils.getFixture("BoxComment/GetCommentsOnFile200");
+
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(fileCommentURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        List<BoxComment.Info> comments = file.getComments();
+        BoxComment.Info firstComment = comments.get(0);
+        BoxComment.Info secondComment = comments.get(1);
+
+        assertEquals(3, comments.size());
+        assertEquals(firstCommentMessage, firstComment.getMessage());
+        assertEquals(firstCommentID, firstComment.getID());
+        assertEquals(firstCommentCreatedByLogin, firstComment.getCreatedBy().getLogin());
+        assertEquals(secondCommentMessage, secondComment.getMessage());
+        assertEquals(secondCommentID, secondComment.getID());
+        assertEquals(secondCommentCreatedByLogin, secondComment.getCreatedBy().getLogin());
+    }
+
+    @Test
+    public void testGetCommentInfoSucceeds() throws IOException {
+        final String commentID = "12345";
+        final String getCommentURL = "/2.0/comments/" + commentID;
+        final String commentMessage = "@Test User  yes";
+        final String createdByName = "Example User";
+        final String itemID = "2222";
+
+        String result = TestUtils.getFixture("BoxComment/GetCommentInfo200");
+
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(getCommentURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxComment.Info commentInfo = new BoxComment(this.api, commentID).getInfo();
+
+        assertFalse(commentInfo.getIsReplyComment());
+        assertEquals(commentMessage, commentInfo.getMessage());
+        assertEquals(commentID, commentInfo.getID());
+        assertEquals(createdByName, commentInfo.getCreatedBy().getName());
+        assertEquals(itemID, commentInfo.getItem().getID());
     }
 }

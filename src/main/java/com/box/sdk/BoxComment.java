@@ -1,12 +1,11 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.text.ParseException;
-import java.util.Date;
-import java.util.regex.Pattern;
-
+import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.Date;
+import java.util.regex.Pattern;
 
 /**
  * Represents a comment on a file. Comments can be added directly to a file or they can be created as replies to other
@@ -18,14 +17,23 @@ import com.eclipsesource.json.JsonValue;
  */
 @BoxResourceType("comment")
 public class BoxComment extends BoxResource {
+
+    /**
+     * Add Comment URL Template.
+     */
+    public static final URLTemplate ADD_COMMENT_URL_TEMPLATE = new URLTemplate("comments");
+    /**
+     * Comment URL Template.
+     */
+    public static final URLTemplate COMMENT_URL_TEMPLATE = new URLTemplate("comments/%s");
+
     private static final Pattern MENTION_REGEX = Pattern.compile("@\\[.+:.+\\]");
-    private static final URLTemplate ADD_COMMENT_URL_TEMPLATE = new URLTemplate("comments");
-    private static final URLTemplate COMMENT_URL_TEMPLATE = new URLTemplate("comments/%s");
 
     /**
      * Constructs a BoxComment for a comment with a given ID.
-     * @param  api the API connection to be used with the comment.
-     * @param  id  the ID of the comment.
+     *
+     * @param api the API connection to be used with the comment.
+     * @param id  the ID of the comment.
      */
     public BoxComment(BoxAPIConnection api, String id) {
         super(api, id);
@@ -33,7 +41,8 @@ public class BoxComment extends BoxResource {
 
     /**
      * Determines if a comment message contains an @mention.
-     * @param  message the comment message.
+     *
+     * @param message the comment message.
      * @return true if the message contains an @mention; otherwise false.
      */
     static boolean messageContainsMention(String message) {
@@ -42,20 +51,22 @@ public class BoxComment extends BoxResource {
 
     /**
      * Gets information about this comment.
+     *
      * @return info about this comment.
      */
     public Info getInfo() {
         URL url = COMMENT_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject jsonResponse = JsonObject.readFrom(response.getJSON());
+        JsonObject jsonResponse = Json.parse(response.getJSON()).asObject();
 
         return new Info(jsonResponse);
     }
 
     /**
      * Changes the message of this comment.
-     * @param  newMessage the new message for this comment.
+     *
+     * @param newMessage the new message for this comment.
      * @return updated info about this comment.
      */
     public Info changeMessage(String newMessage) {
@@ -66,14 +77,15 @@ public class BoxComment extends BoxResource {
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "PUT");
         request.setBody(newInfo.getPendingChanges());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject jsonResponse = JsonObject.readFrom(response.getJSON());
+        JsonObject jsonResponse = Json.parse(response.getJSON()).asObject();
 
         return new Info(jsonResponse);
     }
 
     /**
      * Replies to this comment with another message.
-     * @param  message the message for the reply.
+     *
+     * @param message the message for the reply.
      * @return info about the newly created reply comment.
      */
     public BoxComment.Info reply(String message) {
@@ -93,7 +105,7 @@ public class BoxComment extends BoxResource {
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "POST");
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
 
         BoxComment addedComment = new BoxComment(this.getAPI(), responseJSON.get("id").asString());
         return addedComment.new Info(responseJSON);
@@ -120,6 +132,7 @@ public class BoxComment extends BoxResource {
         private Date createdAt;
         private BoxResource.Info item;
         private BoxUser.Info modifiedBy;
+        private Date modifiedAt;
 
         /**
          * Constructs an empty Info object.
@@ -130,7 +143,8 @@ public class BoxComment extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -138,7 +152,8 @@ public class BoxComment extends BoxResource {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -146,6 +161,7 @@ public class BoxComment extends BoxResource {
 
         /**
          * Gets whether or not the comment is a reply to another comment.
+         *
          * @return true if this comment is a reply to another comment; otherwise false.
          */
         public boolean getIsReplyComment() {
@@ -154,6 +170,7 @@ public class BoxComment extends BoxResource {
 
         /**
          * Gets the comment's message.
+         *
          * @return the comment's message.
          */
         public String getMessage() {
@@ -167,6 +184,7 @@ public class BoxComment extends BoxResource {
         /**
          * Sets the comment's message. The message can contain @mentions by using the string @[userid:username] anywhere
          * within the message, where userid and username are the ID and username of the person being mentioned.
+         *
          * @param message the comment's new message.
          */
         public void setMessage(String message) {
@@ -183,6 +201,7 @@ public class BoxComment extends BoxResource {
 
         /**
          * Gets info about the user who created the comment.
+         *
          * @return info about the user who created the comment.
          */
         public BoxUser.Info getCreatedBy() {
@@ -191,6 +210,7 @@ public class BoxComment extends BoxResource {
 
         /**
          * Gets the time the comment was created.
+         *
          * @return the time the comment was created.
          */
         public Date getCreatedAt() {
@@ -200,6 +220,7 @@ public class BoxComment extends BoxResource {
         /**
          * Gets info about the item this comment is attached to. If the comment is a reply, then the item will be
          * another BoxComment. Otherwise, the item will be a {@link BoxFile}.
+         *
          * @return the item this comment is attached to.
          */
         public BoxResource.Info getItem() {
@@ -208,10 +229,20 @@ public class BoxComment extends BoxResource {
 
         /**
          * Gets info about the user who last modified the comment.
+         *
          * @return info about the user who last modified the comment.
          */
         public BoxUser.Info getModifiedBy() {
             return this.modifiedBy;
+        }
+
+        /**
+         * Gets the time the comment was last modified.
+         *
+         * @return the time the comment was last modified.
+         */
+        public Date getModifiedAt() {
+            return this.modifiedAt;
         }
 
         @Override
@@ -222,10 +253,11 @@ public class BoxComment extends BoxResource {
         @Override
         protected void parseJSONMember(JsonObject.Member member) {
             super.parseJSONMember(member);
+            String memberName = member.getName();
+            JsonValue value = member.getValue();
 
             try {
-                String memberName = member.getName();
-                JsonValue value = member.getValue();
+
                 if (memberName.equals("is_reply_comment")) {
                     this.isReplyComment = value.asBoolean();
 
@@ -260,9 +292,11 @@ public class BoxComment extends BoxResource {
                     } else {
                         this.modifiedBy.update(userJSON);
                     }
+                } else if (memberName.equals("modified_at")) {
+                    this.modifiedAt = BoxDateFormat.parse(value.asString());
                 }
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
         }
 

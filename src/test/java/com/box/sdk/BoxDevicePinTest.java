@@ -1,210 +1,95 @@
 package com.box.sdk;
 
-import java.text.ParseException;
-import java.util.Date;
+import static com.github.tomakehurst.wiremock.client.WireMock.delete;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.junit.Assert.assertEquals;
+
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.io.IOException;
 import java.util.Iterator;
-import java.util.NoSuchElementException;
-
-import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
-
-import com.eclipsesource.json.JsonObject;
 
 /**
  * {@link BoxDevicePin} related unit tests.
  */
 public class BoxDevicePinTest {
 
-    /**
-     * Unit test for {@link BoxDevicePin#getInfo(String...)}.
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testGetInfoSendsCorrectRequest() {
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals("https://api.box.com/2.0/device_pinners/0?fields=owned_by%2Cproduct_name",
-                        request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{}";
-                    }
-                };
-            }
-        });
+    @Rule
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+    private final BoxAPIConnection api = TestUtils.getAPIConnection();
 
-        BoxDevicePin pin = new BoxDevicePin(api, "0");
-        pin.getInfo("owned_by", "product_name");
+    @Before
+    public void setUpBaseUrl() {
+        api.setMaxRetryAttempts(1);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
     }
 
-    /**
-     * Unit test for {@link BoxDevicePin#getInfo(String...)}.
-     */
     @Test
-    @Category(UnitTest.class)
-    public void testGetInfoParseAllFieldsCorrectly() throws ParseException {
-        final String id = "788804";
-        final String userID = "222276603";
-        final String userName = "Ted Blosser";
-        final String userLogin = "ted+boxworks2@box.com";
-        final String productName = "iPad";
-        final Date createdAt = BoxDateFormat.parse("2014-09-23T22:56:18-07:00");
-        final Date modifiedAt = BoxDateFormat.parse("2014-09-23T22:56:18-07:00");
+    public void testDeleteDevicePinSendsCorrectRequest() {
+        final String devicePinID = "12345";
+        final String deleteDevicePinURL = "/2.0/device_pinners/" + devicePinID;
 
-        final JsonObject fakeJSONResponse = JsonObject.readFrom("{\n"
-                + "    \"type\": \"device_pinner\",\n"
-                + "    \"id\": \"788804\",\n"
-                + "    \"owned_by\": {\n"
-                + "        \"type\": \"user\",\n"
-                + "        \"id\": \"222276603\",\n"
-                + "        \"name\": \"Ted Blosser\",\n"
-                + "        \"login\": \"ted+boxworks2@box.com\"\n"
-                + "    },\n"
-                + "    \"product_name\": \"iPad\",\n"
-                + "    \"created_at\": \"2014-09-23T22:56:18-07:00\",\n"
-                + "    \"modified_at\": \"2014-09-23T22:56:18-07:00\"\n"
-                + "}");
+        wireMockRule.stubFor(delete(WireMock.urlPathEqualTo(deleteDevicePinURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withStatus(204)));
 
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeJSONResponse));
-
-        BoxDevicePin pin = new BoxDevicePin(api, "788804");
-        BoxDevicePin.Info info = pin.getInfo();
-        Assert.assertEquals(id, info.getID());
-        Assert.assertEquals(userID, info.getOwnedBy().getID());
-        Assert.assertEquals(userName, info.getOwnedBy().getName());
-        Assert.assertEquals(userLogin, info.getOwnedBy().getLogin());
-        Assert.assertEquals(productName, info.getProductName());
-        Assert.assertEquals(createdAt, info.getCreatedAt());
-        Assert.assertEquals(modifiedAt, info.getModifiedAt());
+        BoxDevicePin devicePin = new BoxDevicePin(this.api, devicePinID);
+        devicePin.delete();
     }
 
-    /**
-     * Unit test for {@link BoxDevicePin#getEnterpriceDevicePins(BoxAPIConnection, String, String...)}.
-     */
-    @Test(expected = NoSuchElementException.class)
-    @Category(UnitTest.class)
-    public void testGetEnterpriseDevicePinsSendsCorrectRequest() {
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals(
-                        "https://api.box.com/2.0/enterprises/0/device_pinners?fields=owned_by%2Cproduct_name&limit=100",
-                        request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{\"entries\":[]}";
+    @Test
+    public void testGetDevicePinInfoSucceeds() throws IOException {
+        final String devicePinID = "12345";
+        final String devicePinURL = "/2.0/device_pinners/" + devicePinID;
+        final String ownedByUserName = "Test User";
+        final String ownedByUserLogin = "test@user.com";
+        final String productName = "iPhone";
 
-                    }
-                };
-            }
-        });
+        String result = TestUtils.getFixture("BoxDevicePin/GetDevicePinInfo200");
 
-        Iterator<BoxDevicePin.Info> iterator =
-                BoxDevicePin.getEnterpriceDevicePins(api, "0", "owned_by", "product_name").iterator();
-        iterator.next();
+        wireMockRule.stubFor(get(WireMock.urlPathEqualTo(devicePinURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxDevicePin devicePin = new BoxDevicePin(this.api, devicePinID);
+        BoxDevicePin.Info devicePinInfo = devicePin.getInfo();
+
+        assertEquals(devicePinID, devicePinInfo.getID());
+        assertEquals(ownedByUserName, devicePinInfo.getOwnedBy().getName());
+        assertEquals(ownedByUserLogin, devicePinInfo.getOwnedBy().getLogin());
+        assertEquals(productName, devicePinInfo.getProductName());
     }
 
-    /**
-     * Unit test for {@link BoxDevicePin#getEnterpriceDevicePins(BoxAPIConnection, String, String...)}.
-     */
     @Test
-    @Category(UnitTest.class)
-    public void testGetEnterpriseDevicePinsParseAllFieldsCorrectly() {
-        final String firstEntryID = "788804";
-        final String firstEntryUserID = "222276603";
-        final String firstEntryUserName = "Ted Blosser";
-        final String firstEntryUserLogin = "ted+boxworks2@box.com";
-        final String firstEntryProductName = "iPad";
-        final String secondEntryID = "1003086";
-        final String secondEntryUserID = "222276604";
-        final String secondEntryUserName = "Alison Wonderland";
-        final String secondEntryUserLogin = "alison+wonderland2@box.com";
-        final String secondEntryProductName = "iPhone";
+    public void testGetAllEnterpriseDevicePinsSucceeds() throws IOException {
+        final String enterpriseID = "1111";
+        final String getAllDevicePinsURL = "/2.0/enterprises/" + enterpriseID + "/device_pinners";
+        final String firstDevicePinID = "12345";
+        final String firstDevicePinProductName = "iPad";
+        final String secondDevicePinOwnedByLogin = "example@user.com";
 
-        final JsonObject fakeJSONResponse = JsonObject.readFrom("{\n"
-                + "    \"entries\": [\n"
-                + "        {\n"
-                + "            \"type\": \"device_pinner\",\n"
-                + "            \"id\": \"788804\",\n"
-                + "            \"owned_by\": {\n"
-                + "                \"type\": \"user\",\n"
-                + "                \"id\": \"222276603\",\n"
-                + "                \"name\": \"Ted Blosser\",\n"
-                + "                \"login\": \"ted+boxworks2@box.com\"\n"
-                + "            },\n"
-                + "            \"product_name\": \"iPad\"\n"
-                + "        },\n"
-                + "\n"
-                + "        {\n"
-                + "            \"type\": \"device_pinner\",\n"
-                + "            \"id\": \"1003086\",\n"
-                + "            \"owned_by\": {\n"
-                + "                \"type\": \"user\",\n"
-                + "                \"id\": \"222276604\",\n"
-                + "                \"name\": \"Alison Wonderland\",\n"
-                + "                \"login\": \"alison+wonderland2@box.com\"\n"
-                + "            },\n"
-                + "            \"product_name\": \"iPhone\"\n"
-                + "        }\n"
-                + "    ],\n"
-                + "    \"limit\": 100,\n"
-                + "    \"order\": [\n"
-                + "        {\n"
-                + "            \"by\": \"id\",\n"
-                + "            \"direction\": \"ASC\"\n"
-                + "        }\n"
-                + "    ]\n"
-                + "}");
+        String result = TestUtils.getFixture("BoxDevicePin/GetAllEnterpriseDevicePins200");
 
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeJSONResponse));
+        wireMockRule.stubFor(get(WireMock.urlPathEqualTo(getAllDevicePinsURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
-        Iterator<BoxDevicePin.Info> iterator = BoxDevicePin.getEnterpriceDevicePins(api, "0").iterator();
-        BoxDevicePin.Info info = iterator.next();
-        Assert.assertEquals(firstEntryID, info.getID());
-        Assert.assertEquals(firstEntryUserID, info.getOwnedBy().getID());
-        Assert.assertEquals(firstEntryUserName, info.getOwnedBy().getName());
-        Assert.assertEquals(firstEntryUserLogin, info.getOwnedBy().getLogin());
-        Assert.assertEquals(firstEntryProductName, info.getProductName());
-        info = iterator.next();
-        Assert.assertEquals(secondEntryID, info.getID());
-        Assert.assertEquals(secondEntryUserID, info.getOwnedBy().getID());
-        Assert.assertEquals(secondEntryUserName, info.getOwnedBy().getName());
-        Assert.assertEquals(secondEntryUserLogin, info.getOwnedBy().getLogin());
-        Assert.assertEquals(secondEntryProductName, info.getProductName());
-        Assert.assertEquals(false, iterator.hasNext());
-    }
+        Iterator<BoxDevicePin.Info> iterator = BoxDevicePin.getEnterpriceDevicePins(this.api, enterpriseID).iterator();
+        BoxDevicePin.Info firstDevicePin = iterator.next();
 
-    /**
-     * Unit test for {@link BoxDevicePin#delete()}.
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testDeleteSendsCorrectRequest() {
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals("https://api.box.com/2.0/device_pinners/0", request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{}";
+        assertEquals(firstDevicePinID, firstDevicePin.getID());
+        assertEquals(firstDevicePinProductName, firstDevicePin.getProductName());
 
-                    }
-                };
-            }
-        });
+        BoxDevicePin.Info secondDevicePin = iterator.next();
 
-        BoxDevicePin pin = new BoxDevicePin(api, "0");
-        pin.delete();
-
+        assertEquals(secondDevicePinOwnedByLogin, secondDevicePin.getOwnedBy().getLogin());
     }
 }

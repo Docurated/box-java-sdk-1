@@ -1,16 +1,14 @@
 package com.box.sdk;
 
-import java.text.ParseException;
-import java.util.Date;
-
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.util.Date;
 
 /**
  * Represents a watermark.
  * Watermarks are used to protect sensitive information in the Box account.
  *
- * @see <a href="https://docs.box.com/reference#watermarking">Watermarking</a>
+ * @see <a href="https://developer.box.com/reference/resources/watermark/">Watermarking</a>
  */
 public class BoxWatermark extends BoxJSONObject {
 
@@ -21,18 +19,21 @@ public class BoxWatermark extends BoxJSONObject {
 
     /**
      * Json key for watermark.
+     *
      * @see BoxWatermark#parseJSONMember(JsonObject.Member)
      */
     public static final String WATERMARK_JSON_KEY = "watermark";
 
     /**
      * Json key for created_at param.
+     *
      * @see BoxWatermark#parseJSONMember(JsonObject.Member)
      */
     public static final String CREATED_AT_JSON_KEY = "created_at";
 
     /**
      * Json key for modified_at param.
+     *
      * @see BoxWatermark#parseJSONMember(JsonObject.Member)
      */
     public static final String MODIFIED_AT_JSON_KEY = "modified_at";
@@ -61,7 +62,8 @@ public class BoxWatermark extends BoxJSONObject {
 
     /**
      * Constructs a watermark object by parsing information from a JSON string.
-     * @param  json the JSON string to parse.
+     *
+     * @param json the JSON string to parse.
      */
     public BoxWatermark(String json) {
         super(json);
@@ -69,7 +71,8 @@ public class BoxWatermark extends BoxJSONObject {
 
     /**
      * Constructs a watermark object using an already parsed JSON object.
-     * @param  jsonObject the parsed JSON object.
+     *
+     * @param jsonObject the parsed JSON object.
      */
     BoxWatermark(JsonObject jsonObject) {
         super(jsonObject);
@@ -92,6 +95,13 @@ public class BoxWatermark extends BoxJSONObject {
     /**
      * {@inheritDoc}
      */
+    public BoxWatermark getResource() {
+        return BoxWatermark.this;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     @Override
     void parseJSONMember(JsonObject.Member member) {
         super.parseJSONMember(member);
@@ -101,8 +111,8 @@ public class BoxWatermark extends BoxJSONObject {
             try {
                 this.createdAt = BoxDateFormat.parse(value.asObject().get(CREATED_AT_JSON_KEY).asString());
                 this.modifiedAt = BoxDateFormat.parse(value.asObject().get(MODIFIED_AT_JSON_KEY).asString());
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
         }
     }

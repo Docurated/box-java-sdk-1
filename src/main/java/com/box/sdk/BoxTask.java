@@ -1,15 +1,13 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.text.ParseException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.Iterator;
-import java.util.List;
-
+import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 
 /**
  * Represents a task on Box. Tasks can have a due date and can be assigned to a specific user.
@@ -17,14 +15,24 @@ import com.eclipsesource.json.JsonValue;
 @BoxResourceType("task")
 public class BoxTask extends BoxResource {
 
-    private static final URLTemplate TASK_URL_TEMPLATE = new URLTemplate("tasks/%s");
-    private static final URLTemplate GET_ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("tasks/%s/assignments");
-    private static final URLTemplate ADD_TASK_ASSIGNMENT_URL_TEMPLATE = new URLTemplate("task_assignments");
+    /**
+     * Task URL Template.
+     */
+    public static final URLTemplate TASK_URL_TEMPLATE = new URLTemplate("tasks/%s");
+    /**
+     * Get Assignments URL Template.
+     */
+    public static final URLTemplate GET_ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("tasks/%s/assignments");
+    /**
+     * Add Task Assignment URL Template.
+     */
+    public static final URLTemplate ADD_TASK_ASSIGNMENT_URL_TEMPLATE = new URLTemplate("task_assignments");
 
     /**
      * Constructs a BoxTask for a task with a given ID.
-     * @param  api the API connection to be used by the task.
-     * @param  id  the ID of the task.
+     *
+     * @param api the API connection to be used by the task.
+     * @param id  the ID of the task.
      */
     public BoxTask(BoxAPIConnection api, String id) {
         super(api, id);
@@ -42,6 +50,7 @@ public class BoxTask extends BoxResource {
 
     /**
      * Adds a new assignment to this task.
+     *
      * @param assignTo the user to assign the assignment to.
      * @return information about the newly added task assignment.
      */
@@ -61,7 +70,7 @@ public class BoxTask extends BoxResource {
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "POST");
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
 
         BoxTaskAssignment addedAssignment = new BoxTaskAssignment(this.getAPI(), responseJSON.get("id").asString());
         return addedAssignment.new Info(responseJSON);
@@ -69,6 +78,7 @@ public class BoxTask extends BoxResource {
 
     /**
      * Adds a new assignment to this task using user's login as identifier.
+     *
      * @param assignToLogin the login of user to assign the task to.
      * @return information about the newly added task assignment.
      */
@@ -88,7 +98,7 @@ public class BoxTask extends BoxResource {
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "POST");
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
 
         BoxTaskAssignment addedAssignment = new BoxTaskAssignment(this.getAPI(), responseJSON.get("id").asString());
         return addedAssignment.new Info(responseJSON);
@@ -96,16 +106,17 @@ public class BoxTask extends BoxResource {
 
     /**
      * Gets any assignments for this task.
+     *
      * @return a list of assignments for this task.
      */
     public List<BoxTaskAssignment.Info> getAssignments() {
         URL url = GET_ASSIGNMENTS_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
 
         int totalCount = responseJSON.get("total_count").asInt();
-        List<BoxTaskAssignment.Info> assignments = new ArrayList<BoxTaskAssignment.Info>(totalCount);
+        List<BoxTaskAssignment.Info> assignments = new ArrayList<>(totalCount);
         JsonArray entries = responseJSON.get("entries").asArray();
         for (JsonValue value : entries) {
             JsonObject assignmentJSON = value.asObject();
@@ -119,37 +130,38 @@ public class BoxTask extends BoxResource {
 
     /**
      * Gets an iterable of all the assignments of this task.
+     *
      * @param fields the fields to retrieve.
-     * @return     an iterable containing info about all the assignments.
+     * @return an iterable containing info about all the assignments.
      */
-    public Iterable<BoxTaskAssignment.Info> getAllAssignments(String ... fields) {
+    public Iterable<BoxTaskAssignment.Info> getAllAssignments(String... fields) {
         final QueryStringBuilder builder = new QueryStringBuilder();
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
         }
-        return new Iterable<BoxTaskAssignment.Info>() {
-            public Iterator<BoxTaskAssignment.Info> iterator() {
-                URL url = GET_ASSIGNMENTS_URL_TEMPLATE.buildWithQuery(
-                        BoxTask.this.getAPI().getBaseURL(), builder.toString(), BoxTask.this.getID());
-                return new BoxTaskAssignmentIterator(BoxTask.this.getAPI(), url);
-            }
+        return () -> {
+            URL url = GET_ASSIGNMENTS_URL_TEMPLATE.buildWithQuery(
+                BoxTask.this.getAPI().getBaseURL(), builder.toString(), BoxTask.this.getID());
+            return new BoxTaskAssignmentIterator(BoxTask.this.getAPI(), url);
         };
     }
 
     /**
      * Gets information about this task.
+     *
      * @return info about this task.
      */
     public Info getInfo() {
         URL url = TASK_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         return new Info(responseJSON);
     }
 
     /**
      * Gets information about this task.
+     *
      * @param fields the fields to retrieve.
      * @return info about this task.
      */
@@ -161,7 +173,7 @@ public class BoxTask extends BoxResource {
         URL url = TASK_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         return new Info(responseJSON);
     }
 
@@ -173,8 +185,8 @@ public class BoxTask extends BoxResource {
      * changed:</p>
      *
      * <pre>BoxTask task = new BoxTask(api, id);
-     *BoxTask.Info info = task.getInfo();
-     *task.updateInfo(info);</pre>
+     * BoxTask.Info info = task.getInfo();
+     * task.updateInfo(info);</pre>
      *
      * @param info the updated info.
      */
@@ -183,8 +195,69 @@ public class BoxTask extends BoxResource {
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "PUT");
         request.setBody(info.getPendingChanges());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
+        JsonObject jsonObject = Json.parse(response.getJSON()).asObject();
         info.update(jsonObject);
+    }
+
+    /**
+     * Enumerates the possible actions that a task can have.
+     */
+    public enum Action {
+        /**
+         * The task must be reviewed.
+         */
+        REVIEW("review"),
+
+        /**
+         * The task must be completed.
+         */
+        COMPLETE("complete");
+
+        private final String jsonValue;
+
+        Action(String jsonValue) {
+            this.jsonValue = jsonValue;
+        }
+
+        static Action fromJSONString(String jsonValue) {
+            if (jsonValue.equals("review")) {
+                return REVIEW;
+            } else if (jsonValue.equals("complete")) {
+                return COMPLETE;
+            } else {
+                throw new IllegalArgumentException("The provided JSON value isn't a valid Action.");
+            }
+        }
+
+        String toJSONString() {
+            return this.jsonValue;
+        }
+    }
+
+    /**
+     * Enumerates the possible completion rules for a task.
+     */
+    public enum CompletionRule {
+
+        /**
+         * The task must be completed by all assignees.
+         */
+        ALL_ASSIGNEES("all_assignees"),
+
+        /**
+         * The task must be completed by at least one assignee.
+         */
+        ANY_ASSIGNEE("any_assignee");
+
+        private final String jsonValue;
+
+        CompletionRule(String jsonValue) {
+            this.jsonValue = jsonValue;
+        }
+
+        String toJSONString() {
+            return this.jsonValue;
+        }
     }
 
     /**
@@ -193,7 +266,8 @@ public class BoxTask extends BoxResource {
     public class Info extends BoxResource.Info {
         private BoxFile.Info item;
         private Date dueAt;
-        private Action action;
+        private String action;
+        private String completionRule;
         private String message;
         private List<BoxTaskAssignment.Info> taskAssignments;
         private boolean completed;
@@ -209,7 +283,8 @@ public class BoxTask extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -217,7 +292,8 @@ public class BoxTask extends BoxResource {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -230,6 +306,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Gets the file associated with this task.
+         *
          * @return the file associated with this task.
          */
         public BoxFile.Info getItem() {
@@ -238,6 +315,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Gets the date at which this task is due.
+         *
          * @return the date at which this task is due.
          */
         public Date getDueAt() {
@@ -246,6 +324,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Sets the task's due date.
+         *
          * @param dueAt the task's due date.
          */
         public void setDueAt(Date dueAt) {
@@ -254,15 +333,47 @@ public class BoxTask extends BoxResource {
         }
 
         /**
+         * @return the action the task assignee will be prompted to do.
+         * @deprecated Please use getTaskType()
+         * <p>
          * Gets the action the task assignee will be prompted to do.
+         */
+        @Deprecated
+        public Action getAction() {
+            return Action.REVIEW;
+        }
+
+        /**
+         * Gets the action the task assignee will be prompted to do.
+         *
          * @return the action the task assignee will be prompted to do.
          */
-        public Action getAction() {
+        public String getTaskType() {
             return this.action;
         }
 
         /**
+         * Returns the completion rule for the task.
+         *
+         * @return the task completion rule.
+         */
+        public String getCompletionRule() {
+            return this.completionRule;
+        }
+
+        /**
+         * Sets the task's completion rule.
+         *
+         * @param completionRule the new completion rule.
+         */
+        public void setCompletionRule(CompletionRule completionRule) {
+            this.completionRule = completionRule.toJSONString();
+            this.addPendingChange("completion_rule", completionRule.toJSONString());
+        }
+
+        /**
          * Gets the message that will be included with this task.
+         *
          * @return the message that will be included with this task.
          */
         public String getMessage() {
@@ -271,6 +382,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Sets the task's message.
+         *
          * @param message the task's new message.
          */
         public void setMessage(String message) {
@@ -280,6 +392,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Gets the collection of task assignments associated with this task.
+         *
          * @return the collection of task assignments associated with this task.
          */
         public List<BoxTaskAssignment.Info> getTaskAssignments() {
@@ -288,6 +401,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Gets whether or not this task has been completed.
+         *
          * @return whether or not this task has been completed.
          */
         public boolean isCompleted() {
@@ -296,6 +410,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Gets the user who created this task.
+         *
          * @return the user who created this task.
          */
         public BoxUser.Info getCreatedBy() {
@@ -304,6 +419,7 @@ public class BoxTask extends BoxResource {
 
         /**
          * Gets when this task was created.
+         *
          * @return when this task was created.
          */
         public Date getCreatedAt() {
@@ -325,7 +441,9 @@ public class BoxTask extends BoxResource {
                 } else if (memberName.equals("due_at")) {
                     this.dueAt = BoxDateFormat.parse(value.asString());
                 } else if (memberName.equals("action")) {
-                    this.action = Action.fromJSONString(value.asString());
+                    this.action = value.asString();
+                } else if (memberName.equals("completion_rule")) {
+                    this.completionRule = value.asString();
                 } else if (memberName.equals("message")) {
                     this.message = value.asString();
                 } else if (memberName.equals("task_assignment_collection")) {
@@ -341,14 +459,14 @@ public class BoxTask extends BoxResource {
                     this.createdAt = BoxDateFormat.parse(value.asString());
                 }
 
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
         }
 
         private List<BoxTaskAssignment.Info> parseTaskAssignmentCollection(JsonObject jsonObject) {
             int count = jsonObject.get("total_count").asInt();
-            List<BoxTaskAssignment.Info> taskAssignmentCollection = new ArrayList<BoxTaskAssignment.Info>(count);
+            List<BoxTaskAssignment.Info> taskAssignmentCollection = new ArrayList<>(count);
             JsonArray entries = jsonObject.get("entries").asArray();
             for (JsonValue value : entries) {
                 JsonObject entry = value.asObject();
@@ -358,34 +476,6 @@ public class BoxTask extends BoxResource {
             }
 
             return taskAssignmentCollection;
-        }
-    }
-
-    /**
-     * Enumerates the possible actions that a task can have.
-     */
-    public enum Action {
-        /**
-         * The task must be reviewed.
-         */
-        REVIEW ("review");
-
-        private final String jsonValue;
-
-        private Action(String jsonValue) {
-            this.jsonValue = jsonValue;
-        }
-
-        static Action fromJSONString(String jsonValue) {
-            if (jsonValue.equals("review")) {
-                return REVIEW;
-            } else {
-                throw new IllegalArgumentException("The provided JSON value isn't a valid Action.");
-            }
-        }
-
-        String toJSONString() {
-            return this.jsonValue;
         }
     }
 }

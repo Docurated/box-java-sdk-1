@@ -1,14 +1,13 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.text.ParseException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-
+import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 
 /**
  * Representing all holds on a file version.
@@ -19,9 +18,10 @@ public class BoxFileVersionLegalHold extends BoxResource {
 
     /**
      * The URL template used for operation with file version legal hold with given ID.
+     *
      * @see #getInfo(String...)
      */
-    private static final URLTemplate FILE_VERSION_HOLD_URL_TEMPLATE = new URLTemplate("file_version_legal_holds/%s");
+    public static final URLTemplate FILE_VERSION_HOLD_URL_TEMPLATE = new URLTemplate("file_version_legal_holds/%s");
 
     /**
      * Constructs a file version legal hold with a given ID.
@@ -37,16 +37,16 @@ public class BoxFileVersionLegalHold extends BoxResource {
      * @param fields the fields to retrieve.
      * @return information about this file version legal hold.
      */
-    public BoxFileVersionLegalHold.Info getInfo(String ... fields) {
+    public BoxFileVersionLegalHold.Info getInfo(String... fields) {
         QueryStringBuilder builder = new QueryStringBuilder();
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
         }
         URL url = FILE_VERSION_HOLD_URL_TEMPLATE.buildWithQuery(
-                this.getAPI().getBaseURL(), builder.toString(), this.getID());
+            this.getAPI().getBaseURL(), builder.toString(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         return new Info(responseJSON);
     }
 
@@ -89,7 +89,8 @@ public class BoxFileVersionLegalHold extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -97,7 +98,8 @@ public class BoxFileVersionLegalHold extends BoxResource {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -167,7 +169,7 @@ public class BoxFileVersionLegalHold extends BoxResource {
                     this.fileVersion = new BoxFileVersion(getAPI(), versionJSON, fileID);
                 } else if (memberName.equals("legal_hold_policy_assignments")) {
                     JsonArray array = value.asArray();
-                    this.assignments = new ArrayList<BoxLegalHoldAssignment.Info>();
+                    this.assignments = new ArrayList<>();
                     for (JsonValue assignmentJSON : array) {
                         String assignmentID = ((JsonObject) assignmentJSON).get("id").asString();
                         BoxLegalHoldAssignment assignment = new BoxLegalHoldAssignment(getAPI(), assignmentID);
@@ -176,8 +178,8 @@ public class BoxFileVersionLegalHold extends BoxResource {
                 } else if (memberName.equals("deleted_at")) {
                     this.deletedAt = BoxDateFormat.parse(value.asString());
                 }
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
         }
 

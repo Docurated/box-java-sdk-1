@@ -1,18 +1,19 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.util.Iterator;
+import static com.box.sdk.PagingParameters.offset;
 
 import com.eclipsesource.json.JsonObject;
+import java.net.URL;
+import java.util.Iterator;
 
 class BoxCollectionIterator implements Iterator<BoxCollection.Info> {
     private static final long LIMIT = 100;
     private final BoxAPIConnection api;
-    private final JSONIterator jsonIterator;
+    private final JsonIterator jsonIterator;
 
     BoxCollectionIterator(BoxAPIConnection api, URL url) {
         this.api = api;
-        this.jsonIterator = new JSONIterator(api, url, LIMIT);
+        this.jsonIterator = new JsonIterator(api, url, offset(0, LIMIT));
     }
 
     @Override

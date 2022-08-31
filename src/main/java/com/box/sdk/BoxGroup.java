@@ -1,14 +1,15 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Iterator;
-
+import com.box.sdk.BoxGroupMembership.Permission;
 import com.box.sdk.BoxGroupMembership.Role;
+import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Map;
 
 /**
  * Represents a set of Box users.
@@ -23,32 +24,33 @@ public class BoxGroup extends BoxCollaborator {
     /**
      * @see #getAllGroups(BoxAPIConnection, String...)
      */
-    private static final URLTemplate GROUPS_URL_TEMPLATE = new URLTemplate("groups");
+    public static final URLTemplate GROUPS_URL_TEMPLATE = new URLTemplate("groups");
 
     /**
      * @see #getInfo()
      */
-    private static final URLTemplate GROUP_URL_TEMPLATE = new URLTemplate("groups/%s");
+    public static final URLTemplate GROUP_URL_TEMPLATE = new URLTemplate("groups/%s");
 
     /**
      * @see #getMemberships()
      */
-    private static final URLTemplate MEMBERSHIPS_URL_TEMPLATE = new URLTemplate("groups/%s/memberships");
+    public static final URLTemplate MEMBERSHIPS_URL_TEMPLATE = new URLTemplate("groups/%s/memberships");
 
     /**
      * @see #addMembership(BoxUser)
      */
-    private static final URLTemplate ADD_MEMBERSHIP_URL_TEMPLATE = new URLTemplate("group_memberships");
+    public static final URLTemplate ADD_MEMBERSHIP_URL_TEMPLATE = new URLTemplate("group_memberships");
 
     /**
      * @see #getCollaborations()
      */
-    private static final URLTemplate COLLABORATIONS_URL_TEMPLATE = new URLTemplate("groups/%s/collaborations");
+    public static final URLTemplate COLLABORATIONS_URL_TEMPLATE = new URLTemplate("groups/%s/collaborations");
 
     /**
      * Constructs a BoxGroup for a group with a given ID.
-     * @param  api the API connection to be used by the group.
-     * @param  id  the ID of the group.
+     *
+     * @param api the API connection to be used by the group.
+     * @param id  the ID of the group.
      */
     public BoxGroup(BoxAPIConnection api, String id) {
         super(api, id);
@@ -56,9 +58,10 @@ public class BoxGroup extends BoxCollaborator {
 
     /**
      * Creates a new group with a specified name.
-     * @param  api  the API connection to be used by the group.
-     * @param  name the name of the new group.
-     * @return      info about the created group.
+     *
+     * @param api  the API connection to be used by the group.
+     * @param name the name of the new group.
+     * @return info about the created group.
      */
     public static BoxGroup.Info createGroup(BoxAPIConnection api, String name) {
         return createGroup(api, name, null, null, null, null, null);
@@ -66,14 +69,15 @@ public class BoxGroup extends BoxCollaborator {
 
     /**
      * Creates a new group with a specified name.
-     * @param  api  the API connection to be used by the group.
-     * @param  name the name of the new group.
-     * @param provenance the provenance of the new group
+     *
+     * @param api                    the API connection to be used by the group.
+     * @param name                   the name of the new group.
+     * @param provenance             the provenance of the new group
      * @param externalSyncIdentifier the external_sync_identifier of the new group
-     * @param description the description of the new group
-     * @param invitabilityLevel the invitibility_level of the new group
+     * @param description            the description of the new group
+     * @param invitabilityLevel      the invitibility_level of the new group
      * @param memberViewabilityLevel the member_viewability_level of the new group
-     * @return      info about the created group.
+     * @return info about the created group.
      */
     public static BoxGroup.Info createGroup(BoxAPIConnection api, String name, String provenance,
                                             String externalSyncIdentifier, String description,
@@ -101,7 +105,7 @@ public class BoxGroup extends BoxCollaborator {
         BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
 
         BoxGroup group = new BoxGroup(api, responseJSON.get("id").asString());
         return group.new Info(responseJSON);
@@ -109,55 +113,94 @@ public class BoxGroup extends BoxCollaborator {
 
     /**
      * Gets an iterable of all the groups in the enterprise.
-     * @param  api the API connection to be used when retrieving the groups.
-     * @return     an iterable containing info about all the groups.
+     *
+     * @param api the API connection to be used when retrieving the groups.
+     * @return an iterable containing info about all the groups.
      */
     public static Iterable<BoxGroup.Info> getAllGroups(final BoxAPIConnection api) {
-        return new Iterable<BoxGroup.Info>() {
-            public Iterator<BoxGroup.Info> iterator() {
-                URL url = GROUPS_URL_TEMPLATE.build(api.getBaseURL());
-                return new BoxGroupIterator(api, url);
-            }
+        return () -> {
+            URL url = GROUPS_URL_TEMPLATE.build(api.getBaseURL());
+            return new BoxGroupIterator(api, url);
         };
     }
 
     /**
      * Gets an iterable of all the groups in the enterprise.
-     * @param  api the API connection to be used when retrieving the groups.
+     *
+     * @param api    the API connection to be used when retrieving the groups.
      * @param fields the fields to retrieve.
-     * @return     an iterable containing info about all the groups.
+     * @return an iterable containing info about all the groups.
      */
-    public static Iterable<BoxGroup.Info> getAllGroups(final BoxAPIConnection api, String ... fields) {
+    public static Iterable<BoxGroup.Info> getAllGroups(final BoxAPIConnection api, String... fields) {
         final QueryStringBuilder builder = new QueryStringBuilder();
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
         }
-        return new Iterable<BoxGroup.Info>() {
-            public Iterator<BoxGroup.Info> iterator() {
-                URL url = GROUPS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), builder.toString());
-                return new BoxGroupIterator(api, url);
+        return () -> {
+            URL url = GROUPS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), builder.toString());
+            return new BoxGroupIterator(api, url);
+        };
+    }
+
+    /**
+     * Gets an iterable of all the groups in the enterprise that are starting with the given name string.
+     *
+     * @param api  the API connection to be used when retrieving the groups.
+     * @param name the name prefix of the groups. If the groups need to searched by full name that has spaces,
+     *             then the parameter string should have been wrapped with "".
+     * @return an iterable containing info about all the groups.
+     */
+    public static Iterable<BoxGroup.Info> getAllGroupsByName(final BoxAPIConnection api, String name) {
+        return getAllGroupsByName(api, name, null);
+    }
+
+    /**
+     * Gets an iterable of all the groups in the enterprise that are starting with the given name string.
+     *
+     * @param api    the API connection to be used when retrieving the groups.
+     * @param name   the name prefix of the groups. If the groups need to searched by full name that has spaces,
+     *               then the parameter string should have been wrapped with "".
+     * @param fields the fields to retrieve.
+     * @return an iterable containing info about all the groups.
+     */
+    public static Iterable<BoxGroup.Info> getAllGroupsByName(final BoxAPIConnection api, String name,
+                                                             String... fields) {
+        final QueryStringBuilder builder = new QueryStringBuilder();
+        if (name == null || name.trim().isEmpty()) {
+            throw new BoxAPIException("Searching groups by name requires a non NULL or non empty name");
+        } else {
+            builder.appendParam("filter_term", name);
+            if (fields != null && fields.length > 0) {
+                builder.appendParam("fields", fields);
             }
+        }
+
+        return () -> {
+            URL url = GROUPS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), builder.toString());
+            return new BoxGroupIterator(api, url);
         };
     }
 
     /**
      * Gets information about this group.
+     *
      * @return info about this group.
      */
     public Info getInfo() {
         URL url = GROUP_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         return new Info(responseJSON);
     }
 
     /**
      * Gets information about this group.
+     *
      * @param fields the fields to retrieve.
      * @return info about this group.
      */
-    public Info getInfo(String ... fields) {
+    public Info getInfo(String... fields) {
         QueryStringBuilder builder = new QueryStringBuilder();
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
@@ -165,29 +208,28 @@ public class BoxGroup extends BoxCollaborator {
         URL url = GROUP_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         return new Info(responseJSON);
     }
 
     /**
      * Gets information about all of the group memberships for this group.
      * Does not support paging.
+     *
      * @return a collection of information about the group memberships for this group.
      */
     public Collection<BoxGroupMembership.Info> getMemberships() {
         final BoxAPIConnection api = this.getAPI();
         final String groupID = this.getID();
 
-        Iterable<BoxGroupMembership.Info> iter = new Iterable<BoxGroupMembership.Info>() {
-            public Iterator<BoxGroupMembership.Info> iterator() {
-                URL url = MEMBERSHIPS_URL_TEMPLATE.build(api.getBaseURL(), groupID);
-                return new BoxGroupMembershipIterator(api, url);
-            }
+        Iterable<BoxGroupMembership.Info> iter = () -> {
+            URL url = MEMBERSHIPS_URL_TEMPLATE.build(api.getBaseURL(), groupID);
+            return new BoxGroupMembershipIterator(api, url);
         };
 
         // We need to iterate all results because this method must return a Collection. This logic should be removed in
         // the next major version, and instead return the Iterable directly.
-        Collection<BoxGroupMembership.Info> memberships = new ArrayList<BoxGroupMembership.Info>();
+        Collection<BoxGroupMembership.Info> memberships = new ArrayList<>();
         for (BoxGroupMembership.Info membership : iter) {
             memberships.add(membership);
         }
@@ -196,39 +238,70 @@ public class BoxGroup extends BoxCollaborator {
 
     /**
      * Gets information about all of the group memberships for this group as iterable with paging support.
+     *
      * @param fields the fields to retrieve.
      * @return an iterable with information about the group memberships for this group.
      */
-    public Iterable<BoxGroupMembership.Info> getAllMemberships(String ... fields) {
+    public Iterable<BoxGroupMembership.Info> getAllMemberships(String... fields) {
         final QueryStringBuilder builder = new QueryStringBuilder();
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
         }
-        return new Iterable<BoxGroupMembership.Info>() {
-            public Iterator<BoxGroupMembership.Info> iterator() {
-                URL url = MEMBERSHIPS_URL_TEMPLATE.buildWithQuery(
-                        BoxGroup.this.getAPI().getBaseURL(), builder.toString(), BoxGroup.this.getID());
-                return new BoxGroupMembershipIterator(BoxGroup.this.getAPI(), url);
-            }
+        return () -> {
+            URL url = MEMBERSHIPS_URL_TEMPLATE.buildWithQuery(
+                BoxGroup.this.getAPI().getBaseURL(), builder.toString(), BoxGroup.this.getID());
+            return new BoxGroupMembershipIterator(BoxGroup.this.getAPI(), url);
         };
     }
 
     /**
      * Adds a member to this group with the default role.
-     * @param  user the member to be added to this group.
-     * @return      info about the new group membership.
+     *
+     * @param user the member to be added to this group.
+     * @return info about the new group membership.
      */
     public BoxGroupMembership.Info addMembership(BoxUser user) {
-        return this.addMembership(user, null);
+        return this.addMembership(user, (Role) null, null);
     }
 
     /**
      * Adds a member to this group with the specified role.
-     * @param  user the member to be added to this group.
-     * @param  role the role of the user in this group. Can be null to assign the default role.
-     * @return      info about the new group membership.
+     *
+     * @param user the member to be added to this group.
+     * @param role the role of the user in this group. Can be null to assign the default role.
+     * @return info about the new group membership.
+     * @deprecated use addMembership(BoxUser user, BoxGroupMembership.GroupRole role) instead.
      */
+    @Deprecated
     public BoxGroupMembership.Info addMembership(BoxUser user, Role role) {
+        return this.addMembership(user, role, null);
+    }
+
+    /**
+     * Adds a member to this group with the specified role.
+     *
+     * @param user the member to be added to this group.
+     * @param role the role of the user in this group. Can be null to assign the default role.
+     * @return info about the new group membership.
+     */
+    public BoxGroupMembership.Info addMembership(BoxUser user, BoxGroupMembership.GroupRole role) {
+        return this.addMembership(user, role, null);
+    }
+
+    /**
+     * Adds a member to this group with the specified role.
+     *
+     * @param user                    the member to be added to this group.
+     * @param role                    the role of the user in this group. Can be null to assign the default role.
+     * @param configurablePermissions the configurable permission of the user as a group admin.
+     *                                Can be null to give all group admin permissions.
+     * @return info about the new group membership.
+     * @deprecated use {@code addMembership(BoxUser user, GroupRole role,
+     * Map<BoxGroupMembership.Permission, Boolean> configurablePermissions)} instead.
+     */
+    @Deprecated
+    public BoxGroupMembership.Info addMembership(BoxUser user, Role role,
+                                                 Map<BoxGroupMembership.Permission, Boolean> configurablePermissions) {
         BoxAPIConnection api = this.getAPI();
 
         JsonObject requestJSON = new JsonObject();
@@ -238,11 +311,57 @@ public class BoxGroup extends BoxCollaborator {
             requestJSON.add("role", role.toJSONString());
         }
 
+        if (configurablePermissions != null) {
+            JsonObject configurablePermissionJson = new JsonObject();
+            for (Permission attrKey : configurablePermissions.keySet()) {
+                configurablePermissionJson.set(attrKey.toJSONValue(), configurablePermissions.get(attrKey));
+            }
+            requestJSON.add("configurable_permissions", configurablePermissionJson);
+        }
+
         URL url = ADD_MEMBERSHIP_URL_TEMPLATE.build(api.getBaseURL());
         BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
+
+        BoxGroupMembership membership = new BoxGroupMembership(api, responseJSON.get("id").asString());
+        return membership.new Info(responseJSON);
+    }
+
+    /**
+     * Adds a member to this group with the specified role.
+     *
+     * @param user                    the member to be added to this group.
+     * @param role                    the role of the user in this group. Can be null to assign the default role.
+     * @param configurablePermissions the configurable permission of the user as a group admin.
+     *                                Can be null to give all group admin permissions.
+     * @return info about the new group membership.
+     */
+    public BoxGroupMembership.Info addMembership(BoxUser user, BoxGroupMembership.GroupRole role,
+                                                 Map<BoxGroupMembership.Permission, Boolean> configurablePermissions) {
+        BoxAPIConnection api = this.getAPI();
+
+        JsonObject requestJSON = new JsonObject();
+        requestJSON.add("user", new JsonObject().add("id", user.getID()));
+        requestJSON.add("group", new JsonObject().add("id", this.getID()));
+        if (role != null) {
+            requestJSON.add("role", role.toJSONString());
+        }
+
+        if (configurablePermissions != null) {
+            JsonObject configurablePermissionJson = new JsonObject();
+            for (Permission attrKey : configurablePermissions.keySet()) {
+                configurablePermissionJson.set(attrKey.toJSONValue(), configurablePermissions.get(attrKey));
+            }
+            requestJSON.add("configurable_permissions", configurablePermissionJson);
+        }
+
+        URL url = ADD_MEMBERSHIP_URL_TEMPLATE.build(api.getBaseURL());
+        BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
+        request.setBody(requestJSON.toString());
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
 
         BoxGroupMembership membership = new BoxGroupMembership(api, responseJSON.get("id").asString());
         return membership.new Info(responseJSON);
@@ -250,6 +369,7 @@ public class BoxGroup extends BoxCollaborator {
 
     /**
      * Gets information about all of the collaborations for this group.
+     *
      * @return a collection of information about the collaborations for this group.
      */
     public Collection<BoxCollaboration.Info> getCollaborations() {
@@ -258,10 +378,10 @@ public class BoxGroup extends BoxCollaborator {
 
         BoxAPIRequest request = new BoxAPIRequest(api, url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
 
         int entriesCount = responseJSON.get("total_count").asInt();
-        Collection<BoxCollaboration.Info> collaborations = new ArrayList<BoxCollaboration.Info>(entriesCount);
+        Collection<BoxCollaboration.Info> collaborations = new ArrayList<>(entriesCount);
         JsonArray entries = responseJSON.get("entries").asArray();
         for (JsonValue entry : entries) {
             JsonObject entryObject = entry.asObject();
@@ -271,6 +391,25 @@ public class BoxGroup extends BoxCollaborator {
         }
 
         return collaborations;
+    }
+
+    /**
+     * Gets information about all of the collaborations for this group.
+     *
+     * @param fields the optional fields to retrieve.
+     * @return An iterable of BoxCollaboration.Info instances associated with the item.
+     */
+    public Iterable<BoxCollaboration.Info> getAllCollaborations(String... fields) {
+        final BoxAPIConnection api = this.getAPI();
+        final QueryStringBuilder builder = new QueryStringBuilder();
+        if (fields.length > 0) {
+            builder.appendParam("fields", fields);
+        }
+        return () -> {
+            URL url = COLLABORATIONS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), builder.toString(),
+                BoxGroup.this.getID());
+            return new BoxCollaborationIterator(api, url);
+        };
     }
 
     /**
@@ -285,6 +424,7 @@ public class BoxGroup extends BoxCollaborator {
 
     /**
      * Updates the information about this group with any info fields that have been modified locally.
+     *
      * @param info the updated info.
      */
     public void updateInfo(BoxGroup.Info info) {
@@ -292,7 +432,7 @@ public class BoxGroup extends BoxCollaborator {
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "PUT");
         request.setBody(info.getPendingChanges());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
+        JsonObject jsonObject = Json.parse(response.getJSON()).asObject();
         info.update(jsonObject);
     }
 
@@ -335,7 +475,8 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -343,7 +484,8 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -366,21 +508,26 @@ public class BoxGroup extends BoxCollaborator {
 
             String memberName = member.getName();
             JsonValue value = member.getValue();
-            if (memberName.equals("description")) {
-                this.description = value.asString();
-            } else if (memberName.equals("external_sync_identifier")) {
-                this.externalSyncIdentifier = value.asString();
-            } else if (memberName.equals("invitability_level")) {
-                this.invitabilityLevel = value.asString();
-            } else if (memberName.equals("member_viewability_level")) {
-                this.memberViewabilityLevel = value.asString();
-            } else if (memberName.equals("provenance")) {
-                this.provenance = value.asString();
+            try {
+                if (memberName.equals("description")) {
+                    this.description = value.asString();
+                } else if (memberName.equals("external_sync_identifier")) {
+                    this.externalSyncIdentifier = value.asString();
+                } else if (memberName.equals("invitability_level")) {
+                    this.invitabilityLevel = value.asString();
+                } else if (memberName.equals("member_viewability_level")) {
+                    this.memberViewabilityLevel = value.asString();
+                } else if (memberName.equals("provenance")) {
+                    this.provenance = value.asString();
+                }
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
         }
 
         /**
          * Gets the description for the group.
+         *
          * @return the description for the group.
          */
         public String getDescription() {
@@ -389,6 +536,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Sets the description for the group.
+         *
          * @param description the description for the group.
          */
         public void setDescription(String description) {
@@ -398,6 +546,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Gets the external_sync_identifier for the group.
+         *
          * @return the external_sync_identifier for the group.
          */
         public String getExternalSyncIdentifier() {
@@ -406,6 +555,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Sets the external_sync_identifier for the group.
+         *
          * @param externalSyncIdentifier the external_sync_identifier for the group.
          */
         public void setExternalSyncIdentifier(String externalSyncIdentifier) {
@@ -415,6 +565,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Gets the invitability_level for the group.
+         *
          * @return the invitability_level for the group.
          */
         public String getInvitabilityLevel() {
@@ -423,6 +574,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Sets the invitability_level for the group.
+         *
          * @param invitabilityLevel the invitability_level for the group.
          */
         public void setInvitabilityLevel(String invitabilityLevel) {
@@ -432,6 +584,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Gets the member_viewability_level for the group.
+         *
          * @return the member_viewability_level for the group.
          */
         public String getMemberViewabilityLevel() {
@@ -440,6 +593,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Sets the member_viewability_level for the group.
+         *
          * @param memberViewabilityLevel the member_viewability_level for the group.
          */
         public void setMemberViewabilityLevel(String memberViewabilityLevel) {
@@ -449,6 +603,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Gets the provenance for the group.
+         *
          * @return the provenance for the group.
          */
         public String getProvenance() {
@@ -457,6 +612,7 @@ public class BoxGroup extends BoxCollaborator {
 
         /**
          * Sets the provenance for the group.
+         *
          * @param provenance the provenance for the group.
          */
         public void setProvenance(String provenance) {

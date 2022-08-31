@@ -1,30 +1,98 @@
 package com.box.sdk;
 
-import java.text.ParseException;
-
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import org.junit.Test;
-import org.junit.experimental.categories.Category;
-
 import com.eclipsesource.json.JsonObject;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class BoxEventTest {
+
+    @Rule
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+    private final BoxAPIConnection api = TestUtils.getAPIConnection();
+
+    @Before
+    public void setUpBaseUrl() {
+        api.setMaxRetryAttempts(1);
+        api.setBaseURL(baseUrl());
+    }
+
     @Test
-    @Category(UnitTest.class)
+    public void testIsEventLogUnique() throws IOException, ParseException {
+        final String eventURL = "/2.0/events";
+        String startTime = "2019-02-02T21:48:38Z";
+        String endTime = "2019-02-02T23:48:40Z";
+
+        String getResult = TestUtils.getFixture("BoxEvent/GetEnterpriseEvents200");
+
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(eventURL))
+            .withQueryParam("stream_type", WireMock.equalTo("admin_logs"))
+            .withQueryParam("limit", WireMock.equalTo("500"))
+            .withQueryParam("created_after", WireMock.equalTo("2019-02-02T21:48:38Z"))
+            .withQueryParam("created_before", WireMock.equalTo("2019-02-02T23:48:40Z"))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(getResult)));
+
+        Date startDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ssX").parse(startTime);
+        Date endDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ssX").parse(endTime);
+        EventLog eventLog = EventLog.getEnterpriseEvents(this.api, startDate, endDate);
+        assertEquals(1, eventLog.getSize());
+    }
+
+    @Test
+    public void testEventLog() throws IOException, ParseException {
+        final String eventURL = "/2.0/events";
+        String startTime = "2019-02-02T21:48:38Z";
+        String endTime = "2019-02-02T23:48:40Z";
+
+        String getResult = TestUtils.getFixture("BoxEvent/GetEnterpriseEvents200");
+
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(eventURL))
+            .withQueryParam("stream_type", WireMock.equalTo("admin_logs"))
+            .withQueryParam("limit", WireMock.equalTo("500"))
+            .withQueryParam("created_after", WireMock.equalTo("2019-02-02T21:48:38Z"))
+            .withQueryParam("created_before", WireMock.equalTo("2019-02-02T23:48:40Z"))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(getResult)));
+
+        Date startDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ssX").parse(startTime);
+        Date endDate = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ssX").parse(endTime);
+        EventLog eventLog = EventLog.getEnterpriseEvents(this.api, startDate, endDate);
+        BoxEvent event = eventLog.iterator().next();
+        assertEquals("54321", event.getActionBy().getID());
+        assertEquals("12345", event.getSourceInfo().getID());
+        assertEquals("Example User", event.getCreatedBy().getName());
+        assertEquals(BoxEvent.Type.ADD_LOGIN_ACTIVITY_DEVICE, event.getType());
+        assertEquals(BoxEvent.EventType.ADD_LOGIN_ACTIVITY_DEVICE, event.getEventType());
+        assertEquals("ADD_LOGIN_ACTIVITY_DEVICE", event.getTypeName());
+    }
+
+    @Test
     public void newBoxEventHandlesUnknownEventType() {
         String eventJSON = "{ \"type\": \"event\", \"event_id\": \"f82c3ba03e41f7e8a7608363cc6c0390183c3f83\", "
             + "\"event_type\": \"UNKNOWN_EVENT_TYPE\" }";
         BoxEvent event = new BoxEvent(null, eventJSON);
 
         assertThat(event.getType(), is(BoxEvent.Type.UNKNOWN));
+        assertThat(event.getEventType(), is(BoxEvent.EventType.UNKNOWN));
     }
 
     @Test
-    @Category(UnitTest.class)
     public void newBoxEventShouldParseAllFieldsCorrectly() throws ParseException {
         final String eventID = "non-empty event ID";
         final String sessionID = "non-empty session ID";
@@ -67,16 +135,14 @@ public class BoxEventTest {
         assertEquals(isPerformedByAdmin, event.getAdditionalDetails().get("is_performed_by_admin").asBoolean());
         assertEquals(userID, event.getAccessibleBy().getID());
         assertEquals(userName, event.getAccessibleBy().getName());
-        assertEquals(userLogin, ((BoxUser.Info) event.getAccessibleBy()).getLogin());
+        assertEquals(userLogin, event.getAccessibleBy().getLogin());
     }
 
     @Test
-    @Category(UnitTest.class)
-    public void newBoxEventShouldParseAccessibleByFieldCorrectlyWhenItIsAGroup() throws ParseException {
+    public void newBoxEventShouldParseAccessibleByFieldCorrectlyWhenItIsAGroup() {
         final String eventID = "non-empty event ID";
         final String groupID = "non-empty group ID";
         final String groupName = "non-empty group name";
-
         JsonObject eventJSON = new JsonObject()
             .add("event_id", eventID)
             .add("accessible_by", new JsonObject()
@@ -91,5 +157,9 @@ public class BoxEventTest {
         BoxGroup.Info parsedGroupInfo = (BoxGroup.Info) event.getAccessibleBy();
         assertEquals(groupID, parsedGroupInfo.getID());
         assertEquals(groupName, parsedGroupInfo.getName());
+    }
+
+    private String baseUrl() {
+        return format("http://localhost:%d", wireMockRule.port());
     }
 }

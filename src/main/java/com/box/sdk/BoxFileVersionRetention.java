@@ -1,11 +1,10 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.text.ParseException;
-import java.util.Date;
-
+import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.Date;
 
 /**
  * Represents a file version retention.
@@ -13,7 +12,7 @@ import com.eclipsesource.json.JsonValue;
  * Admins can apply policies to specified folders, or an entire enterprise.
  * A file version retention is a record for a retained file version.
  *
- * @see <a href="https://docs.box.com/reference#file-version-retention-object">Box file version retention</a>
+ * @see <a href="https://developer.box.com/reference/resources/file-version-retention/">Box file version retention</a>
  *
  * <p>Unless otherwise noted, the methods in this class can throw an unchecked {@link BoxAPIException} (unchecked
  * meaning that the compiler won't force you to handle it) if an error occurs. If you wish to implement custom error
@@ -25,12 +24,12 @@ public class BoxFileVersionRetention extends BoxResource {
     /**
      * @see #getInfo(String...)
      */
-    private static final URLTemplate RETENTION_URL_TEMPLATE = new URLTemplate("file_version_retentions/%s");
+    public static final URLTemplate RETENTION_URL_TEMPLATE = new URLTemplate("file_version_retentions/%s");
 
     /**
      * The URL template used for operation with file version retentions.
      */
-    private static final URLTemplate ALL_RETENTIONS_URL_TEMPLATE = new URLTemplate("file_version_retentions");
+    public static final URLTemplate ALL_RETENTIONS_URL_TEMPLATE = new URLTemplate("file_version_retentions");
 
     /**
      * The default limit of entries per response.
@@ -48,44 +47,33 @@ public class BoxFileVersionRetention extends BoxResource {
     }
 
     /**
-     * @param fields the fields to retrieve.
-     * @return information about this retention policy.
-     */
-    public BoxFileVersionRetention.Info getInfo(String ... fields) {
-        QueryStringBuilder builder = new QueryStringBuilder();
-        if (fields.length > 0) {
-            builder.appendParam("fields", fields);
-        }
-        URL url = RETENTION_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString(), this.getID());
-        BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
-        return new Info(responseJSON);
-    }
-
-    /**
      * Retrieves all file version retentions.
-     * @param api the API connection to be used by the resource.
+     *
+     * @param api    the API connection to be used by the resource.
      * @param fields the fields to retrieve.
      * @return an iterable contains information about all file version retentions.
      */
-    public static Iterable<BoxFileVersionRetention.Info> getAll(BoxAPIConnection api, String ... fields) {
+    public static Iterable<BoxFileVersionRetention.Info> getAll(BoxAPIConnection api, String... fields) {
         return getRetentions(api, new QueryFilter(), fields);
     }
 
     /**
-     * Retrieves all file version retentions matching given filters as an Iterable.
-     * @param api the API connection to be used by the resource.
+     * @param api    the API connection to be used by the resource.
      * @param filter filters for the query stored in QueryFilter object.
      * @param fields the fields to retrieve.
      * @return an iterable contains information about all file version retentions matching given filter.
+     * @deprecated This method will be deprecated in the future. Please use
+     * {@link BoxRetentionPolicyAssignment#getFilesUnderRetention(int, String...)}
+     * and {@link BoxRetentionPolicyAssignment#getFileVersionsUnderRetention(String...)} instead.
+     * Retrieves all file version retentions matching given filters as an Iterable.
      */
+    @Deprecated
     public static Iterable<BoxFileVersionRetention.Info> getRetentions(
-            final BoxAPIConnection api, QueryFilter filter, String ... fields) {
+        final BoxAPIConnection api, QueryFilter filter, String... fields) {
         filter.addFields(fields);
         return new BoxResourceIterable<BoxFileVersionRetention.Info>(api,
-                ALL_RETENTIONS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), filter.toString()),
-                DEFAULT_LIMIT) {
+            ALL_RETENTIONS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), filter.toString()),
+            DEFAULT_LIMIT) {
 
             @Override
             protected BoxFileVersionRetention.Info factory(JsonObject jsonObject) {
@@ -93,6 +81,137 @@ public class BoxFileVersionRetention extends BoxResource {
                 return retention.new Info(jsonObject);
             }
         };
+    }
+
+    /**
+     * @param fields the fields to retrieve.
+     * @return information about this retention policy.
+     */
+    public BoxFileVersionRetention.Info getInfo(String... fields) {
+        QueryStringBuilder builder = new QueryStringBuilder();
+        if (fields.length > 0) {
+            builder.appendParam("fields", fields);
+        }
+        URL url = RETENTION_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString(), this.getID());
+        BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
+        return new Info(responseJSON);
+    }
+
+    /**
+     * Represents possible query filters for "Get File Version Retentions" function.
+     */
+    public static class QueryFilter extends QueryStringBuilder {
+
+        /**
+         * Param name for the file id to filter the file version retentions by.
+         */
+        private static final String PARAM_FILE_ID = "file_id";
+
+        /**
+         * Param name for the file version id to filter the file version retentions by.
+         */
+        private static final String PARAM_FILE_VERSION_ID = "file_version_id";
+
+        /**
+         * Param name for the policy id to filter the file version retentions by.
+         */
+        private static final String PARAM_POLICY_ID = "policy_id";
+
+        /**
+         * Param name for the disposition action of the retention policy.
+         */
+        private static final String PARAM_DISPOSITION_ACTION = "disposition_action";
+
+        /**
+         * Param name for the datetime to filter file version retentions.
+         */
+        private static final String PARAM_DISPOSITION_BEFORE = "disposition_before";
+
+        /**
+         * Param name for the datetime to filter file version retentions.
+         */
+        private static final String PARAM_DISPOSITION_AFTER = "disposition_after";
+
+        /**
+         * Param name for the the fields to retrieve.
+         */
+        private static final String PARAM_FIELDS = "fields";
+
+        /**
+         * Constructs empty query filter.
+         */
+        public QueryFilter() {
+            super();
+        }
+
+        /**
+         * @param id a file id to filter the file version retentions by.
+         * @return modified query filter.
+         */
+        public QueryFilter addFileID(String id) {
+            this.appendParam(PARAM_FILE_ID, id);
+            return this;
+        }
+
+        /**
+         * @param id a file version id to filter the file version retentions by.
+         * @return modified query filter.
+         */
+        public QueryFilter addFileVersionID(String id) {
+            this.appendParam(PARAM_FILE_VERSION_ID, id);
+            return this;
+        }
+
+        /**
+         * @param id a policy id to filter the file version retentions by.
+         * @return modified query filter.
+         */
+        public QueryFilter addPolicyID(String id) {
+            this.appendParam(PARAM_POLICY_ID, id);
+            return this;
+        }
+
+        /**
+         * The action can be "permanently_delete" or "remove_retention".
+         *
+         * @param action the disposition action of the retention policy.
+         * @return modified query filter.
+         */
+        public QueryFilter addDispositionAction(String action) {
+            this.appendParam(PARAM_DISPOSITION_ACTION, action);
+            return this;
+        }
+
+        /**
+         * @param date the datetime to filter file version retentions.
+         * @return modified query filter.
+         */
+        public QueryFilter addDispositionBefore(Date date) {
+            this.appendParam(PARAM_DISPOSITION_BEFORE, BoxDateFormat.format(date));
+            return this;
+        }
+
+        /**
+         * @param date the datetime to filter file version retentions.
+         * @return modified query filter.
+         */
+        public QueryFilter addDispositionAfter(Date date) {
+            this.appendParam(PARAM_DISPOSITION_AFTER, BoxDateFormat.format(date));
+            return this;
+        }
+
+        /**
+         * @param fields the fields to retrieve.
+         * @return modified query filter.
+         */
+        public QueryFilter addFields(String... fields) {
+            if (fields.length > 0) {
+                this.appendParam(PARAM_FIELDS, fields);
+            }
+            return this;
+        }
     }
 
     /**
@@ -134,7 +253,8 @@ public class BoxFileVersionRetention extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -142,7 +262,8 @@ public class BoxFileVersionRetention extends BoxResource {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -227,123 +348,9 @@ public class BoxFileVersionRetention extends BoxResource {
                 } else if (memberName.equals("disposition_at")) {
                     this.dispositionAt = BoxDateFormat.parse(value.asString());
                 }
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
-        }
-    }
-
-    /**
-     * Represents possible query filters for "Get File Version Retentions" function.
-     */
-    public static class QueryFilter extends QueryStringBuilder {
-
-        /**
-         * Param name for the file id to filter the file version retentions by.
-         */
-        private static final String PARAM_FILE_ID = "file_id";
-
-        /**
-         * Param name for the file version id to filter the file version retentions by.
-         */
-        private static final String PARAM_FILE_VERSION_ID = "file_version_id";
-
-        /**
-         * Param name for the policy id to filter the file version retentions by.
-         */
-        private static final String PARAM_POLICY_ID = "policy_id";
-
-        /**
-         * Param name for the disposition action of the retention policy.
-         */
-        private static final String PARAM_DISPOSITION_ACTION = "disposition_action";
-
-        /**
-         * Param name for the datetime to filter file version retentions.
-         */
-        private static final String PARAM_DISPOSITION_BEFORE = "disposition_before";
-
-        /**
-         * Param name for the datetime to filter file version retentions.
-         */
-        private static final String PARAM_DISPOSITION_AFTER = "disposition_after";
-
-        /**
-         * Param name for the the fields to retrieve.
-         */
-        private static final String PARAM_FIELDS = "fields";
-
-        /**
-         * Constructs empty query filter.
-         */
-        public QueryFilter() {
-            super();
-        }
-
-        /**
-         * @param id a file id to filter the file version retentions by.
-         * @return modified query filter.
-         */
-        public QueryFilter addFileID(String id) {
-            this.appendParam(PARAM_FILE_ID, id);
-            return this;
-        }
-
-        /**
-         * @param id a file version id to filter the file version retentions by.
-         * @return modified query filter.
-         */
-        public QueryFilter addFileVersionID(String id) {
-            this.appendParam(PARAM_FILE_VERSION_ID, id);
-            return this;
-        }
-
-        /**
-         * @param id a policy id to filter the file version retentions by.
-         * @return modified query filter.
-         */
-        public QueryFilter addPolicyID(String id) {
-            this.appendParam(PARAM_POLICY_ID, id);
-            return this;
-        }
-
-        /**
-         * The action can be "permanently_delete" or "remove_retention".
-         * @param action the disposition action of the retention policy.
-         * @return modified query filter.
-         */
-        public QueryFilter addDispositionAction(String action) {
-            this.appendParam(PARAM_DISPOSITION_ACTION, action);
-            return this;
-        }
-
-        /**
-         * @param date the datetime to filter file version retentions.
-         * @return modified query filter.
-         */
-        public QueryFilter addDispositionBefore(Date date) {
-            this.appendParam(PARAM_DISPOSITION_BEFORE, BoxDateFormat.format(date));
-            return this;
-        }
-
-        /**
-         * @param date the datetime to filter file version retentions.
-         * @return modified query filter.
-         */
-        public QueryFilter addDispositionAfter(Date date) {
-            this.appendParam(PARAM_DISPOSITION_AFTER, BoxDateFormat.format(date));
-            return this;
-        }
-
-        /**
-         * @param fields the fields to retrieve.
-         * @return modified query filter.
-         */
-        public QueryFilter addFields(String ... fields) {
-            if (fields.length > 0) {
-                this.appendParam(PARAM_FIELDS, fields);
-            }
-            return this;
         }
     }
 }

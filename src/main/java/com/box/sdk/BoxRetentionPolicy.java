@@ -1,18 +1,20 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.text.ParseException;
-import java.util.Date;
-
+import com.eclipsesource.json.Json;
+import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 
 /**
  * Represents a retention policy.
  * A retention policy blocks permanent deletion of content for a specified amount of time.
  * Admins can create retention policies and then later assign them to specific folders or their entire enterprise.
  *
- * @see <a href="https://docs.box.com/reference#retention-policy-object">Box retention policy</a>
+ * @see <a href="https://developer.box.com/reference/resources/retention-policy/">Box retention policy</a>
  *
  * <p>Unless otherwise noted, the methods in this class can throw an unchecked {@link BoxAPIException} (unchecked
  * meaning that the compiler won't force you to handle it) if an error occurs. If you wish to implement custom error
@@ -20,9 +22,23 @@ import com.eclipsesource.json.JsonValue;
  */
 @BoxResourceType("retention_policy")
 public class BoxRetentionPolicy extends BoxResource {
+    /**
+     * The URL template used for operation with retention policies.
+     */
+    public static final URLTemplate RETENTION_POLICIES_URL_TEMPLATE = new URLTemplate("retention_policies");
 
     /**
-     *  Will cause the content retained by the policy to be permanently deleted.
+     * The URL template used for operation with retention policy with given ID.
+     */
+    public static final URLTemplate POLICY_URL_TEMPLATE = new URLTemplate("retention_policies/%s");
+
+    /**
+     * The URL template used for operation with retention policy assignments.
+     */
+    public static final URLTemplate ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("retention_policies/%s/assignments");
+
+    /**
+     * Will cause the content retained by the policy to be permanently deleted.
      */
     public static final String ACTION_PERMANENTLY_DELETE = "permanently_delete";
 
@@ -42,35 +58,9 @@ public class BoxRetentionPolicy extends BoxResource {
     public static final String STATUS_RETIRED = "retired";
 
     /**
-     * Type for finite retention policies. Finite retention policies has the duration.
-     */
-    private static final String TYPE_FINITE = "finite";
-
-    /**
-     * Type for indefinite retention policies. Indefinite retention policies can have only "remove_retention"
-     * assigned action.
-     */
-    private static final String TYPE_INDEFINITE = "indefinite";
-
-    /**
      * The default limit of entries per response.
      */
     private static final int DEFAULT_LIMIT = 100;
-
-    /**
-     * The URL template used for operation with retention policies.
-     */
-    private static final URLTemplate RETENTION_POLICIES_URL_TEMPLATE = new URLTemplate("retention_policies");
-
-    /**
-     * The URL template used for operation with retention policy with given ID.
-     */
-    private static final URLTemplate POLICY_URL_TEMPLATE = new URLTemplate("retention_policies/%s");
-
-    /**
-     * The URL template used for operation with retention policy assignments.
-     */
-    private static final URLTemplate ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("retention_policies/%s/assignments");
 
     /**
      * Constructs a retention policy for a resource with a given ID.
@@ -84,210 +74,208 @@ public class BoxRetentionPolicy extends BoxResource {
 
     /**
      * Used to create a new indefinite retention policy.
-     * @param api the API connection to be used by the created user.
+     *
+     * @param api  the API connection to be used by the created user.
      * @param name the name of the retention policy.
      * @return the created retention policy's info.
      */
     public static BoxRetentionPolicy.Info createIndefinitePolicy(BoxAPIConnection api, String name) {
-        return createRetentionPolicy(api, name, TYPE_INDEFINITE, 0, ACTION_REMOVE_RETENTION);
+        return createRetentionPolicy(
+            api, name, BoxRetentionPolicyType.Indefinite, 0, BoxRetentionPolicyAction.RemoveRetention
+        );
+    }
+
+    /**
+     * Used to create a new indefinite retention policy with optional parameters.
+     *
+     * @param api            the API connection to be used by the created user.
+     * @param name           the name of the retention policy.
+     * @param optionalParams the optional parameters.
+     * @return the created retention policy's info.
+     */
+    public static BoxRetentionPolicy.Info createIndefinitePolicy(
+        BoxAPIConnection api, String name, RetentionPolicyParams optionalParams
+    ) {
+        return createRetentionPolicy(
+            api, name, BoxRetentionPolicyType.Indefinite, 0, BoxRetentionPolicyAction.RemoveRetention, optionalParams
+        );
     }
 
     /**
      * Used to create a new finite retention policy.
-     * @param api the API connection to be used by the created user.
-     * @param name the name of the retention policy.
+     *
+     * @param api    the API connection to be used by the created user.
+     * @param name   the name of the retention policy.
+     * @param length the duration in days that the retention policy will be active for after being assigned to content.
+     * @param action the disposition action can be "permanently_delete" or "remove_retention".
+     * @return the created retention policy's info.
+     * @deprecated Use {@link BoxRetentionPolicy#createFinitePolicy(BoxAPIConnection, String, int, BoxRetentionPolicyAction)}
+     */
+    @Deprecated
+    public static BoxRetentionPolicy.Info createFinitePolicy(BoxAPIConnection api,
+                                                             String name,
+                                                             int length,
+                                                             String action) {
+        return createRetentionPolicy(
+            api, name, BoxRetentionPolicyType.Finite, length, BoxRetentionPolicyAction.valueOf(action)
+        );
+    }
+
+    /**
+     * Used to create a new finite retention policy.
+     *
+     * @param api    the API connection to be used by the created user.
+     * @param name   the name of the retention policy.
      * @param length the duration in days that the retention policy will be active for after being assigned to content.
      * @param action the disposition action can be "permanently_delete" or "remove_retention".
      * @return the created retention policy's info.
      */
-    public static BoxRetentionPolicy.Info createFinitePolicy(BoxAPIConnection api, String name, int length,
-                                                                      String action) {
-        return createRetentionPolicy(api, name, TYPE_FINITE, length, action);
+    public static BoxRetentionPolicy.Info createFinitePolicy(BoxAPIConnection api,
+                                                             String name,
+                                                             int length,
+                                                             BoxRetentionPolicyAction action) {
+        return createRetentionPolicy(api, name, BoxRetentionPolicyType.Finite, length, action);
+    }
+
+    /**
+     * Used to create a new finite retention policy with optional parameters.
+     *
+     * @param api            the API connection to be used by the created user.
+     * @param name           the name of the retention policy.
+     * @param length         the duration in days that the retention policy will be active for after being assigned to content.
+     * @param action         the disposition action can be "permanently_delete" or "remove_retention".
+     * @param optionalParams the optional parameters.
+     * @return the created retention policy's info.
+     * @deprecated Use {@link BoxRetentionPolicy#createFinitePolicy(BoxAPIConnection, String, int, BoxRetentionPolicyAction, RetentionPolicyParams)}
+     */
+    @Deprecated
+    public static BoxRetentionPolicy.Info createFinitePolicy(
+        BoxAPIConnection api,
+        String name,
+        int length,
+        String action,
+        RetentionPolicyParams optionalParams
+    ) {
+        return createRetentionPolicy(
+            api, name, BoxRetentionPolicyType.Finite, length, BoxRetentionPolicyAction.valueOf(action), optionalParams
+        );
+    }
+
+    /**
+     * Used to create a new finite retention policy with optional parameters.
+     *
+     * @param api            the API connection to be used by the created user.
+     * @param name           the name of the retention policy.
+     * @param length         the duration in days that the retention policy will be active for after being assigned to content.
+     * @param action         the disposition action can be "permanently_delete" or "remove_retention".
+     * @param optionalParams the optional parameters.
+     * @return the created retention policy's info.
+     */
+    public static BoxRetentionPolicy.Info createFinitePolicy(
+        BoxAPIConnection api,
+        String name,
+        int length,
+        BoxRetentionPolicyAction action,
+        RetentionPolicyParams optionalParams
+    ) {
+        return createRetentionPolicy(api, name, BoxRetentionPolicyType.Finite, length, action, optionalParams);
     }
 
     /**
      * Used to create a new retention policy.
-     * @param api the API connection to be used by the created user.
-     * @param name the name of the retention policy.
-     * @param type the type of the retention policy. Can be "finite" or "indefinite".
+     *
+     * @param api    the API connection to be used by the created user.
+     * @param name   the name of the retention policy.
+     * @param type   the type of the retention policy. Can be "finite" or "indefinite".
      * @param length the duration in days that the retention policy will be active for after being assigned to content.
      * @param action the disposition action can be "permanently_delete" or "remove_retention".
      * @return the created retention policy's info.
      */
-    private static BoxRetentionPolicy.Info createRetentionPolicy(BoxAPIConnection api, String name, String type,
-                                                                int length, String action) {
+    private static BoxRetentionPolicy.Info createRetentionPolicy(BoxAPIConnection api,
+                                                                 String name,
+                                                                 BoxRetentionPolicyType type,
+                                                                 int length,
+                                                                 BoxRetentionPolicyAction action) {
+        return createRetentionPolicy(api, name, type, length, action, null);
+    }
+
+    /**
+     * Used to create a new retention policy with optional parameters.
+     *
+     * @param api            the API connection to be used by the created user.
+     * @param name           the name of the retention policy.
+     * @param type           the type of the retention policy. Can be "finite" or "indefinite".
+     * @param length         the duration in days that the retention policy will be active for after being assigned to content.
+     * @param action         the disposition action can be "permanently_delete" or "remove_retention".
+     * @param optionalParams the optional parameters.
+     * @return the created retention policy's info.
+     */
+    private static BoxRetentionPolicy.Info createRetentionPolicy(
+        BoxAPIConnection api,
+        String name,
+        BoxRetentionPolicyType type,
+        int length,
+        BoxRetentionPolicyAction action,
+        RetentionPolicyParams optionalParams
+    ) {
         URL url = RETENTION_POLICIES_URL_TEMPLATE.build(api.getBaseURL());
         BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
         JsonObject requestJSON = new JsonObject()
-                .add("policy_name", name)
-                .add("policy_type", type)
-                .add("disposition_action", action);
-        if (!type.equals(TYPE_INDEFINITE)) {
+            .add("policy_name", name)
+            .add("policy_type", type.value)
+            .add("disposition_action", action.value);
+        if (type != BoxRetentionPolicyType.Indefinite) {
             requestJSON.add("retention_length", length);
+        }
+        if (optionalParams != null) {
+            requestJSON.add("can_owner_extend_retention", optionalParams.getCanOwnerExtendRetention());
+            requestJSON.add("are_owners_notified", optionalParams.getAreOwnersNotified());
+            requestJSON.add("description", optionalParams.getDescription());
+
+            List<BoxUser.Info> customNotificationRecipients = optionalParams.getCustomNotificationRecipients();
+            if (customNotificationRecipients.size() > 0) {
+                JsonArray users = new JsonArray();
+                for (BoxUser.Info user : customNotificationRecipients) {
+                    JsonObject userJSON = new JsonObject()
+                        .add("type", "user")
+                        .add("id", user.getID());
+                    users.add(userJSON);
+                }
+                requestJSON.add("custom_notification_recipients", users);
+            }
         }
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         BoxRetentionPolicy createdPolicy = new BoxRetentionPolicy(api, responseJSON.get("id").asString());
         return createdPolicy.new Info(responseJSON);
     }
 
     /**
-     * Returns iterable with all folder assignments of this retention policy.
-     * @param fields the fields to retrieve.
-     * @return an iterable containing all folder assignments.
-     */
-    public Iterable<BoxRetentionPolicyAssignment.Info> getFolderAssignments(String ... fields) {
-        return this.getFolderAssignments(DEFAULT_LIMIT, fields);
-    }
-
-    /**
-     * Returns iterable with all folder assignments of this retention policy.
-     * @param limit the limit of entries per response. The default value is 100.
-     * @param fields the fields to retrieve.
-     * @return an iterable containing all folder assignments.
-     */
-    public Iterable<BoxRetentionPolicyAssignment.Info> getFolderAssignments(int limit, String ... fields) {
-        return this.getAssignments(BoxRetentionPolicyAssignment.TYPE_FOLDER, limit, fields);
-    }
-
-    /**
-     * Returns iterable with all enterprise assignments of this retention policy.
-     * @param fields the fields to retrieve.
-     * @return an iterable containing all enterprise assignments.
-     */
-    public Iterable<BoxRetentionPolicyAssignment.Info> getEnterpriseAssignments(String ... fields) {
-        return this.getEnterpriseAssignments(DEFAULT_LIMIT, fields);
-    }
-
-    /**
-     * Returns iterable with all enterprise assignments of this retention policy.
-     * @param limit the limit of entries per response. The default value is 100.
-     * @param fields the fields to retrieve.
-     * @return an iterable containing all enterprise assignments.
-     */
-    public Iterable<BoxRetentionPolicyAssignment.Info> getEnterpriseAssignments(int limit, String ... fields) {
-        return this.getAssignments(BoxRetentionPolicyAssignment.TYPE_ENTERPRISE, limit, fields);
-    }
-
-    /**
-     * Returns iterable with all assignments of this retention policy.
-     * @param fields the fields to retrieve.
-     * @return an iterable containing all assignments.
-     */
-    public Iterable<BoxRetentionPolicyAssignment.Info> getAllAssignments(String ... fields) {
-        return this.getAllAssignments(DEFAULT_LIMIT, fields);
-    }
-
-    /**
-     * Returns iterable with all assignments of this retention policy.
-     * @param limit the limit of entries per response. The default value is 100.
-     * @param fields the fields to retrieve.
-     * @return an iterable containing all assignments.
-     */
-    public Iterable<BoxRetentionPolicyAssignment.Info> getAllAssignments(int limit, String ... fields) {
-        return this.getAssignments(null, limit, fields);
-    }
-
-    /**
-     * Returns iterable with all assignments of given type of this retention policy.
-     * @param type the type of the retention policy assignment to retrieve. Can either be "folder" or "enterprise".
-     * @param limit the limit of entries per response. The default value is 100.
-     * @param fields the fields to retrieve.
-     * @return an iterable containing all assignments of given type.
-     */
-    private Iterable<BoxRetentionPolicyAssignment.Info> getAssignments(String type, int limit, String ... fields) {
-        QueryStringBuilder queryString = new QueryStringBuilder();
-        if (type != null) {
-            queryString.appendParam("type", type);
-        }
-        if (fields.length > 0) {
-            queryString.appendParam("fields", fields);
-        }
-        URL url = ASSIGNMENTS_URL_TEMPLATE.buildWithQuery(getAPI().getBaseURL(), queryString.toString(), getID());
-        return new BoxResourceIterable<BoxRetentionPolicyAssignment.Info>(getAPI(), url, limit) {
-
-            @Override
-            protected BoxRetentionPolicyAssignment.Info factory(JsonObject jsonObject) {
-                BoxRetentionPolicyAssignment assignment
-                    = new BoxRetentionPolicyAssignment(getAPI(), jsonObject.get("id").asString());
-                return assignment.new Info(jsonObject);
-            }
-
-        };
-    }
-
-    /**
-     * Assigns this retention policy to folder.
-     * @param folder the folder to assign policy to.
-     * @return info about created assignment.
-     */
-    public BoxRetentionPolicyAssignment.Info assignTo(BoxFolder folder) {
-        return BoxRetentionPolicyAssignment.createAssignmentToFolder(this.getAPI(), this.getID(), folder.getID());
-    }
-
-    /**
-     * Assigns this retention policy to the current enterprise.
-     * @return info about created assignment.
-     */
-    public BoxRetentionPolicyAssignment.Info assignToEnterprise() {
-        return BoxRetentionPolicyAssignment.createAssignmentToEnterprise(this.getAPI(), this.getID());
-    }
-
-    /**
-     * Updates the information about this retention policy with any info fields that have been modified locally.
-     * @param info the updated info.
-     */
-    public void updateInfo(BoxRetentionPolicy.Info info) {
-        URL url = POLICY_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
-        BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "PUT");
-        request.setBody(info.getPendingChanges());
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
-        info.update(responseJSON);
-    }
-
-    /**
-     * Returns information about this retention policy.
-     * @param fields the fields to retrieve.
-     * @return information about this retention policy.
-     */
-    public BoxRetentionPolicy.Info getInfo(String ... fields) {
-        QueryStringBuilder builder = new QueryStringBuilder();
-        if (fields.length > 0) {
-            builder.appendParam("fields", fields);
-        }
-        URL url = POLICY_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString(), this.getID());
-        BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
-        return new Info(responseJSON);
-    }
-
-
-    /**
      * Returns all the retention policies.
-     * @param api the API connection to be used by the resource.
+     *
+     * @param api    the API connection to be used by the resource.
      * @param fields the fields to retrieve.
      * @return an iterable with all the retention policies.
      */
-    public static Iterable<BoxRetentionPolicy.Info> getAll(final BoxAPIConnection api, String ... fields) {
+    public static Iterable<BoxRetentionPolicy.Info> getAll(final BoxAPIConnection api, String... fields) {
         return getAll(null, null, null, DEFAULT_LIMIT, api, fields);
     }
 
     /**
      * Returns all the retention policies with specified filters.
-     * @param name a name to filter the retention policies by. A trailing partial match search is performed.
-     *             Set to null if no name filtering is required.
-     * @param type a policy type to filter the retention policies by. Set to null if no type filtering is required.
+     *
+     * @param name   a name to filter the retention policies by. A trailing partial match search is performed.
+     *               Set to null if no name filtering is required.
+     * @param type   a policy type to filter the retention policies by. Set to null if no type filtering is required.
      * @param userID a user id to filter the retention policies by. Set to null if no type filtering is required.
-     * @param limit the limit of items per single response. The default value is 100.
-     * @param api the API connection to be used by the resource.
+     * @param limit  the limit of items per single response. The default value is 100.
+     * @param api    the API connection to be used by the resource.
      * @param fields the fields to retrieve.
      * @return an iterable with all the retention policies met search conditions.
      */
     public static Iterable<BoxRetentionPolicy.Info> getAll(
-            String name, String type, String userID, int limit, final BoxAPIConnection api, String ... fields) {
+        String name, String type, String userID, int limit, final BoxAPIConnection api, String... fields) {
         QueryStringBuilder queryString = new QueryStringBuilder();
         if (name != null) {
             queryString.appendParam("policy_name", name);
@@ -311,6 +299,176 @@ public class BoxRetentionPolicy extends BoxResource {
             }
 
         };
+    }
+
+    /**
+     * Returns iterable with all folder assignments of this retention policy.
+     *
+     * @param fields the fields to retrieve.
+     * @return an iterable containing all folder assignments.
+     */
+    public Iterable<BoxRetentionPolicyAssignment.Info> getFolderAssignments(String... fields) {
+        return this.getFolderAssignments(DEFAULT_LIMIT, fields);
+    }
+
+    /**
+     * Returns iterable with all folder assignments of this retention policy.
+     *
+     * @param limit  the limit of entries per response. The default value is 100.
+     * @param fields the fields to retrieve.
+     * @return an iterable containing all folder assignments.
+     */
+    public Iterable<BoxRetentionPolicyAssignment.Info> getFolderAssignments(int limit, String... fields) {
+        return this.getAssignments(BoxRetentionPolicyAssignment.TYPE_FOLDER, limit, fields);
+    }
+
+    /**
+     * Returns iterable with all enterprise assignments of this retention policy.
+     *
+     * @param fields the fields to retrieve.
+     * @return an iterable containing all enterprise assignments.
+     */
+    public Iterable<BoxRetentionPolicyAssignment.Info> getEnterpriseAssignments(String... fields) {
+        return this.getEnterpriseAssignments(DEFAULT_LIMIT, fields);
+    }
+
+    /**
+     * Returns iterable with all enterprise assignments of this retention policy.
+     *
+     * @param limit  the limit of entries per response. The default value is 100.
+     * @param fields the fields to retrieve.
+     * @return an iterable containing all enterprise assignments.
+     */
+    public Iterable<BoxRetentionPolicyAssignment.Info> getEnterpriseAssignments(int limit, String... fields) {
+        return this.getAssignments(BoxRetentionPolicyAssignment.TYPE_ENTERPRISE, limit, fields);
+    }
+
+    /**
+     * Returns iterable with all assignments of this retention policy.
+     *
+     * @param fields the fields to retrieve.
+     * @return an iterable containing all assignments.
+     */
+    public Iterable<BoxRetentionPolicyAssignment.Info> getAllAssignments(String... fields) {
+        return this.getAllAssignments(DEFAULT_LIMIT, fields);
+    }
+
+    /**
+     * Returns iterable with all assignments of this retention policy.
+     *
+     * @param limit  the limit of entries per response. The default value is 100.
+     * @param fields the fields to retrieve.
+     * @return an iterable containing all assignments.
+     */
+    public Iterable<BoxRetentionPolicyAssignment.Info> getAllAssignments(int limit, String... fields) {
+        return this.getAssignments(null, limit, fields);
+    }
+
+    /**
+     * Returns iterable with all assignments of given type of this retention policy.
+     *
+     * @param type   the type of the retention policy assignment to retrieve. Can either be "folder" or "enterprise".
+     * @param limit  the limit of entries per response. The default value is 100.
+     * @param fields the fields to retrieve.
+     * @return an iterable containing all assignments of given type.
+     */
+    private Iterable<BoxRetentionPolicyAssignment.Info> getAssignments(String type, int limit, String... fields) {
+        QueryStringBuilder queryString = new QueryStringBuilder();
+        if (type != null) {
+            queryString.appendParam("type", type);
+        }
+        if (fields.length > 0) {
+            queryString.appendParam("fields", fields);
+        }
+        URL url = ASSIGNMENTS_URL_TEMPLATE.buildWithQuery(getAPI().getBaseURL(), queryString.toString(), getID());
+        return new BoxResourceIterable<BoxRetentionPolicyAssignment.Info>(getAPI(), url, limit) {
+
+            @Override
+            protected BoxRetentionPolicyAssignment.Info factory(JsonObject jsonObject) {
+                BoxRetentionPolicyAssignment assignment
+                    = new BoxRetentionPolicyAssignment(getAPI(), jsonObject.get("id").asString());
+                return assignment.new Info(jsonObject);
+            }
+
+        };
+    }
+
+    /**
+     * Assigns this retention policy to folder.
+     *
+     * @param folder the folder to assign policy to.
+     * @return info about created assignment.
+     */
+    public BoxRetentionPolicyAssignment.Info assignTo(BoxFolder folder) {
+        return BoxRetentionPolicyAssignment.createAssignmentToFolder(this.getAPI(), this.getID(), folder.getID());
+    }
+
+    /**
+     * Assigns this retention policy to the current enterprise.
+     *
+     * @return info about created assignment.
+     */
+    public BoxRetentionPolicyAssignment.Info assignToEnterprise() {
+        return BoxRetentionPolicyAssignment.createAssignmentToEnterprise(this.getAPI(), this.getID());
+    }
+
+    /**
+     * Assigns this retention policy to a metadata template, optionally with certain field values.
+     *
+     * @param templateID   the ID of the metadata template to apply to.
+     * @param fieldFilters optional field value filters.
+     * @return info about the created assignment.
+     */
+    public BoxRetentionPolicyAssignment.Info assignToMetadataTemplate(String templateID,
+                                                                      MetadataFieldFilter... fieldFilters) {
+        return assignToMetadataTemplate(templateID, null, fieldFilters);
+    }
+
+    /**
+     * Assigns this retention policy to a metadata template, optionally with certain field values.
+     *
+     * @param templateID     the ID of the metadata template to apply to.
+     * @param startDateField the date the retention policy assignment begins. This field can be a date field's metadata attribute key id.
+     * @param fieldFilters   optional field value filters.
+     * @return info about the created assignment.
+     */
+    public BoxRetentionPolicyAssignment.Info assignToMetadataTemplate(String templateID,
+                                                                      String startDateField,
+                                                                      MetadataFieldFilter... fieldFilters) {
+        return BoxRetentionPolicyAssignment.createAssignmentToMetadata(this.getAPI(), this.getID(), templateID,
+            startDateField, fieldFilters);
+    }
+
+    /**
+     * Updates the information about this retention policy with any info fields that have been modified locally.
+     *
+     * @param info the updated info.
+     */
+    public void updateInfo(BoxRetentionPolicy.Info info) {
+        URL url = POLICY_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
+        BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "PUT");
+        request.setBody(info.getPendingChanges());
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
+        info.update(responseJSON);
+    }
+
+    /**
+     * Returns information about this retention policy.
+     *
+     * @param fields the fields to retrieve.
+     * @return information about this retention policy.
+     */
+    public BoxRetentionPolicy.Info getInfo(String... fields) {
+        QueryStringBuilder builder = new QueryStringBuilder();
+        if (fields.length > 0) {
+            builder.appendParam("fields", fields);
+        }
+        URL url = POLICY_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString(), this.getID());
+        BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
+        return new Info(responseJSON);
     }
 
     /**
@@ -359,6 +517,23 @@ public class BoxRetentionPolicy extends BoxResource {
         private Date modifiedAt;
 
         /**
+         * @see #getCanOwnerExtendRetention()
+         */
+        private boolean canOwnerExtendRetention;
+
+        /**
+         * @see #getAreOwnersNotified()
+         */
+        private boolean areOwnersNotified;
+
+        /**
+         * @see #getDescription()
+         */
+        private String description;
+
+        private List<BoxUser.Info> customNotificationRecipients;
+
+        /**
          * Constructs an empty Info object.
          */
         public Info() {
@@ -367,7 +542,8 @@ public class BoxRetentionPolicy extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -375,7 +551,8 @@ public class BoxRetentionPolicy extends BoxResource {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -391,6 +568,7 @@ public class BoxRetentionPolicy extends BoxResource {
 
         /**
          * Gets the name given to the retention policy.
+         *
          * @return name given to the retention policy.
          */
         public String getPolicyName() {
@@ -398,10 +576,21 @@ public class BoxRetentionPolicy extends BoxResource {
         }
 
         /**
+         * Update the policy name to a new value.
+         *
+         * @param policyName the new policy name.
+         */
+        public void setPolicyName(String policyName) {
+            this.policyName = policyName;
+            this.addPendingChange("policy_name", policyName);
+        }
+
+        /**
          * Gets the type of the retention policy.
          * A retention policy type can either be "finite",
          * where a specific amount of time to retain the content is known upfront,
          * or "indefinite", where the amount of time to retain the content is still unknown.
+         *
          * @return the type of the retention policy.
          */
         public String getPolicyType() {
@@ -411,6 +600,7 @@ public class BoxRetentionPolicy extends BoxResource {
         /**
          * Gets the length of the retention policy. This length specifies the duration
          * in days that the retention policy will be active for after being assigned to content.
+         *
          * @return the length of the retention policy.
          */
         public int getRetentionLength() {
@@ -420,6 +610,7 @@ public class BoxRetentionPolicy extends BoxResource {
         /**
          * Gets the disposition action of the retention policy.
          * This action can be "permanently_delete", or "remove_retention".
+         *
          * @return the disposition action of the retention policy.
          */
         public String getDispositionAction() {
@@ -427,8 +618,19 @@ public class BoxRetentionPolicy extends BoxResource {
         }
 
         /**
+         * Set the action to take when retention period ends.
+         *
+         * @param dispositionAction the new action.
+         */
+        public void setDispositionAction(String dispositionAction) {
+            this.dispositionAction = dispositionAction;
+            this.addPendingChange("disposition_action", dispositionAction);
+        }
+
+        /**
          * Gets the status of the retention policy.
          * The status can be "active" or "retired".
+         *
          * @return the status of the retention policy.
          */
         public String getStatus() {
@@ -436,7 +638,18 @@ public class BoxRetentionPolicy extends BoxResource {
         }
 
         /**
+         * Set the policy status.
+         *
+         * @param status the new status value.
+         */
+        public void setStatus(String status) {
+            this.status = status;
+            this.addPendingChange("status", status);
+        }
+
+        /**
          * Gets info about the user created the retention policy.
+         *
          * @return info about the user created the retention policy.
          */
         public BoxUser.Info getCreatedBy() {
@@ -445,6 +658,7 @@ public class BoxRetentionPolicy extends BoxResource {
 
         /**
          * Gets the time that the retention policy was created.
+         *
          * @return the time that the retention policy was created.
          */
         public Date getCreatedAt() {
@@ -453,10 +667,57 @@ public class BoxRetentionPolicy extends BoxResource {
 
         /**
          * Gets the time that the retention policy was last modified.
+         *
          * @return the time that the retention policy was last modified.
          */
         public Date getModifiedAt() {
             return this.modifiedAt;
+        }
+
+        /**
+         * Gets the flag to denote that the owner of a retained file can extend the retention when near expiration.
+         *
+         * @return the boolean flag.
+         */
+        public boolean getCanOwnerExtendRetention() {
+            return this.canOwnerExtendRetention;
+        }
+
+        /**
+         * Gets the flag to denote that owners and co-owners of a retained file will get notified when near expiration.
+         *
+         * @return the boolean flag.
+         */
+        public boolean getAreOwnersNotified() {
+            return this.areOwnersNotified;
+        }
+
+        /**
+         * Gets the additional text desription of the retention policy.
+         *
+         * @return the additional text desription of the retention policy
+         */
+        public String getDescription() {
+            return this.description;
+        }
+
+        /**
+         * Set the additional text desription of the retention policy.
+         *
+         * @param description the new text desription of the retention policy
+         */
+        public void setDescription(String description) {
+            this.description = description;
+            this.addPendingChange("description", description);
+        }
+
+        /**
+         * Gets the list of users to be notified of a retained file when near expiration.
+         *
+         * @return the list of users to be notified.
+         */
+        public List<BoxUser.Info> getCustomNotificationRecipients() {
+            return this.customNotificationRecipients;
         }
 
         /**
@@ -473,7 +734,14 @@ public class BoxRetentionPolicy extends BoxResource {
                 } else if (memberName.equals("policy_type")) {
                     this.policyType = value.asString();
                 } else if (memberName.equals("retention_length")) {
-                    this.retentionLength = value.asInt();
+                    int intVal;
+                    if (value.asString().equals(BoxRetentionPolicyType.Indefinite.value)) {
+                        intVal = -1;
+                    } else {
+                        intVal = Integer.parseInt(value.asString());
+                    }
+
+                    this.retentionLength = intVal;
                 } else if (memberName.equals("disposition_action")) {
                     this.dispositionAction = value.asString();
                 } else if (memberName.equals("status")) {
@@ -491,10 +759,63 @@ public class BoxRetentionPolicy extends BoxResource {
                     this.createdAt = BoxDateFormat.parse(value.asString());
                 } else if (memberName.equals("modified_at")) {
                     this.modifiedAt = BoxDateFormat.parse(value.asString());
+                } else if (memberName.equals("can_owner_extend_retention")) {
+                    this.canOwnerExtendRetention = value.asBoolean();
+                } else if (memberName.equals("are_owners_notified")) {
+                    this.areOwnersNotified = value.asBoolean();
+                } else if (memberName.equals("description")) {
+                    this.description = value.asString();
+                } else if (memberName.equals("custom_notification_recipients")) {
+                    List<BoxUser.Info> recipients = new ArrayList<BoxUser.Info>();
+                    for (JsonValue userJSON : value.asArray()) {
+                        String userID = userJSON.asObject().get("id").asString();
+                        BoxUser user = new BoxUser(getAPI(), userID);
+                        recipients.add(user.new Info(userJSON.asObject()));
+                    }
+                    this.customNotificationRecipients = recipients;
                 }
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
+        }
+    }
+
+    private enum BoxRetentionPolicyType {
+        /**
+         * Type for finite retention policies. Finite retention policies has the duration.
+         */
+        Finite("finite"),
+        /**
+         * Type for indefinite retention policies. Indefinite retention policies can have only
+         * {@link BoxRetentionPolicyAction#RemoveRetention} assigned action.
+         */
+        Indefinite("indefinite");
+
+        private final String value;
+
+        BoxRetentionPolicyType(String value) {
+            this.value = value;
+        }
+    }
+
+    /**
+     * The disposition action of the retention policy.
+     */
+    public enum BoxRetentionPolicyAction {
+        /**
+         * Will cause the content retained by the policy to be permanently deleted.
+         */
+        PermanentlyDelete("permanently_delete"),
+
+        /**
+         * Will lift the retention policy from the content, allowing it to be deleted by users.
+         */
+        RemoveRetention("remove_retention");
+
+        private final String value;
+
+        BoxRetentionPolicyAction(String value) {
+            this.value = value;
         }
     }
 }

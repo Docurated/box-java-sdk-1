@@ -1,134 +1,74 @@
 package com.box.sdk;
 
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-
-import static org.hamcrest.Matchers.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.options;
+import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.any;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
-
-import static com.github.tomakehurst.wiremock.client.WireMock.*;
-
-import com.github.tomakehurst.wiremock.http.Request;
-import com.github.tomakehurst.wiremock.http.RequestListener;
-import com.github.tomakehurst.wiremock.http.Response;
-import com.github.tomakehurst.wiremock.junit.WireMockRule;
 
 public class EventStreamTest {
     @Rule
-    public final WireMockRule wireMockRule = new WireMockRule(8080);
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+    private final BoxAPIConnection api = new BoxAPIConnection("");
 
-    @Test
-    @Category(IntegrationTest.class)
-    public void receiveEventsForFolderCreateAndFolderDelete() throws InterruptedException {
-        final LinkedBlockingQueue<BoxEvent> observedEvents = new LinkedBlockingQueue<BoxEvent>();
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        EventStream stream = new EventStream(api);
-        stream.addListener(new EventListener() {
-            @Override
-            public void onEvent(BoxEvent event) {
-                observedEvents.add(event);
-            }
-
-            @Override
-            public void onNextPosition(long position) {
-                return;
-            }
-
-            @Override
-            public boolean onException(Throwable e) {
-                return true;
-            }
-        });
-        stream.start();
-
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        BoxFolder childFolder = rootFolder.createFolder("[receiveEventsForFolderCreateAndFolderDelete] Child Folder")
-            .getResource();
-        String expectedID = childFolder.getID();
-        childFolder.delete(false);
-
-        boolean createdEventFound = false;
-        boolean deletedEventFound = false;
-        int timeouts = 0;
-        while (timeouts < 3 && (!createdEventFound || !deletedEventFound)) {
-            BoxEvent event = observedEvents.poll(1, TimeUnit.MINUTES);
-            if (null == event) {
-                timeouts++;
-                System.out.println("Time outs: " + timeouts);
-                continue;
-            }
-            BoxResource.Info  sourceInfo = event.getSourceInfo();
-            //  Some events may not have sourceInfo
-            if (sourceInfo == null) {
-                continue;
-            }
-            BoxResource source = sourceInfo.getResource();
-            if (source instanceof BoxFolder) {
-                BoxFolder sourceFolder = (BoxFolder) source;
-                if (sourceFolder.getID().equals(expectedID)) {
-                    if (event.getType() == BoxEvent.Type.ITEM_CREATE) {
-                        BoxFolder folder = (BoxFolder) event.getSourceInfo().getResource();
-                        final String eventFolderID = folder.getID();
-                        final String childFolderID = childFolder.getID();
-                        assertThat(eventFolderID, is(equalTo(childFolderID)));
-                        createdEventFound = true;
-                    }
-
-                    if (event.getType() == BoxEvent.Type.ITEM_TRASH) {
-                        BoxFolder folder = (BoxFolder) event.getSourceInfo().getResource();
-                        assertThat(folder.getID(), is(equalTo(childFolder.getID())));
-                        deletedEventFound = true;
-                    }
-                }
-            }
-        }
-
-        assertThat(createdEventFound, is(true));
-        assertThat(deletedEventFound, is(true));
-        stream.stop();
+    @Before
+    public void setUpBaseUrl() {
+        api.setMaxRetryAttempts(1);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
     }
 
     @Test
-    @Category(UnitTest.class)
     public void canStopStreamWhileWaitingForAPIResponse() throws InterruptedException {
-        final long streamPosition = 0;
-        final String realtimeServerURL = "/realtimeServer?channel=0";
+        final long streamPosition = 123456;
+        final String realtimeServerURL = "/2.0/realtimeServer?channel=0";
+        String eventsURL = "/2.0/events";
 
-        stubFor(options(urlEqualTo("/events"))
+        stubFor(options(urlEqualTo(eventsURL))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
-                .withBody("{ \"entries\": [ { \"url\": \"http://localhost:8080" + realtimeServerURL + "\", "
-                    + "\"max_retries\": \"3\", \"retry_timeout\": 60000 } ] }")));
+                .withBody("{ \"entries\": [ { \"url\": \"http://localhost:" + wireMockRule.port()
+                    + realtimeServerURL + "\", \"max_retries\": \"3\", \"retry_timeout\": 60000 } ] }")));
 
-        stubFor(get(urlMatching("/events\\?.*stream_position=now.*"))
+        stubFor(get(urlPathMatching(eventsURL))
+            .withQueryParam("stream_position", WireMock.equalTo("now"))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
-                .withBody("{ \"next_stream_position\": " + streamPosition + " }")));
+                .withBody("{ \"next_stream_position\": " + streamPosition + ",\"entries\":[] }")));
 
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setBaseURL("http://localhost:8080/");
+        stubFor(get(urlMatching("/2.0/realtimeServer.*"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"message\": \"new_change\" }")));
+
 
         final EventStream stream = new EventStream(api);
         final Object requestLock = new Object();
-        this.wireMockRule.addMockServiceRequestListener(new RequestListener() {
-            @Override
-            public void requestReceived(Request request, Response response) {
-                String streamPositionURL = realtimeServerURL + "&stream_position=" + streamPosition;
-                boolean requestUrlMatch = request.getUrl().contains(streamPositionURL);
-                if (requestUrlMatch) {
-                    stream.stop();
+        this.wireMockRule.addMockServiceRequestListener((request, response) -> {
+            String streamPositionURL = realtimeServerURL + "&stream_position=" + streamPosition;
+            boolean requestUrlMatch = request.getUrl().contains(streamPositionURL);
+            if (requestUrlMatch) {
+                stream.stop();
 
-                    synchronized (requestLock) {
-                        requestLock.notify();
-                    }
+                synchronized (requestLock) {
+                    requestLock.notify();
                 }
             }
         });
@@ -142,54 +82,53 @@ public class EventStreamTest {
     }
 
     @Test
-    @Category(UnitTest.class)
     public void duplicateEventsAreNotReported() throws InterruptedException {
-        final String realtimeServerURL = "/realtimeServer?channel=0";
+        final String realtimeServerURL = "/2.0/realtimeServer?channel=0";
+        String eventsURL = "/2.0/events";
 
-        stubFor(options(urlEqualTo("/events"))
+        stubFor(options(urlEqualTo(eventsURL))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
-                .withBody("{ \"entries\": [ { \"url\": \"http://localhost:8080" + realtimeServerURL + "\", "
-                    + "\"max_retries\": \"3\", \"retry_timeout\": 60000 } ] }")));
+                .withBody("{ \"entries\": [ { \"url\": \"http://localhost:" + wireMockRule.port()
+                    + realtimeServerURL + "\", \"max_retries\": \"3\", \"retry_timeout\": 60000 } ] }")));
 
-        stubFor(get(urlMatching("/events\\?.*stream_position=now.*"))
+        stubFor(get(urlMatching("/2.0/events\\?.*stream_position=now.*"))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("{ \"next_stream_position\": 0 }")));
 
-        stubFor(get(urlMatching("/realtimeServer.*"))
-            .willReturn(aResponse()
-                .withHeader("Content-Type", "application/json")
-                .withBody("{ \"message\": \"new_change\" }")));
-
-        stubFor(get(urlMatching("/events\\?.*stream_position=0"))
+        stubFor(get(urlMatching("/2.0/events\\?.*stream_position=0"))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("{ \"next_stream_position\": 1, \"entries\": [ { \"type\": \"event\", "
                     + "\"event_id\": \"1\" } ] }")));
 
-        stubFor(get(urlMatching("/events\\?.*stream_position=1"))
+        stubFor(get(urlMatching("/2.0/events\\?.*stream_position=1"))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("{ \"next_stream_position\": -1, \"entries\": [ { \"type\": \"event\", "
                     + "\"event_id\": \"1\" } ] }")));
 
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setBaseURL("http://localhost:8080/");
+        stubFor(get(urlMatching("/2.0/events\\?.*stream_position=-1"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"next_stream_position\": -1, \"entries\": [] }")));
+
+        stubFor(get(urlMatching("/2.0/realtimeServer.*"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"message\": \"new_change\" }")));
 
         final EventStream stream = new EventStream(api);
         final EventListener eventListener = mock(EventListener.class);
         stream.addListener(eventListener);
 
         final Object requestLock = new Object();
-        this.wireMockRule.addMockServiceRequestListener(new RequestListener() {
-            @Override
-            public void requestReceived(Request request, Response response) {
-                boolean requestUrlMatch = request.getUrl().contains("-1");
-                if (requestUrlMatch) {
-                    synchronized (requestLock) {
-                        requestLock.notify();
-                    }
+        this.wireMockRule.addMockServiceRequestListener((request, response) -> {
+            boolean requestUrlMatch = request.getUrl().contains("-1");
+            if (requestUrlMatch) {
+                synchronized (requestLock) {
+                    requestLock.notify();
                 }
             }
         });
@@ -200,5 +139,66 @@ public class EventStreamTest {
         }
 
         verify(eventListener).onEvent(any(BoxEvent.class));
+    }
+
+    @Test
+    public void delayBetweenCalls() throws InterruptedException {
+
+        final String realtimeServerURL = "/2.0/realtimeServer?channel=0";
+        final int delay = 1000;
+        final long[] times = new long[2];
+
+        stubFor(options(urlEqualTo("/2.0/events"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"entries\": [ { \"url\": \"http://localhost:" + wireMockRule.port()
+                    + realtimeServerURL + "\", \"max_retries\": \"3\", \"retry_timeout\": 60000 } ] }")));
+
+        stubFor(get(urlMatching("/2.0/events\\?.*stream_position=now.*"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"next_stream_position\": 123 }")));
+
+        stubFor(get(urlMatching("/2.0/realtimeServer.*"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"message\": \"new_change\" }")));
+
+        stubFor(get(urlMatching("/2.0/events\\?.*stream_position=123.*"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"next_stream_position\": 456, \"entries\": [ { \"type\": \"event\", "
+                    + "\"event_id\": \"1\" } ] }")));
+
+        stubFor(get(urlMatching("/2.0/events\\?.*stream_position=456.*"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{ \"next_stream_position\": 789, \"entries\": [ { \"type\": \"event\", "
+                    + "\"event_id\": \"1\" } ] }")));
+
+        final EventStream stream = new EventStream(api, -1, delay);
+        final EventListener eventListener = mock(EventListener.class);
+        stream.addListener(eventListener);
+
+        final CountDownLatch latch = new CountDownLatch(3);
+        this.wireMockRule.addMockServiceRequestListener((request, response) -> {
+            if (request.getUrl().contains("stream_position=123")) {
+                times[0] = System.currentTimeMillis();
+                latch.countDown();
+            }
+            if (request.getUrl().contains("stream_position=456")) {
+                times[1] = System.currentTimeMillis();
+                latch.countDown();
+            }
+            if (request.getUrl().contains("stream_position=789")) {
+                latch.countDown();
+            }
+        });
+
+        stream.start();
+        assertTrue("EventStream was interuppted", latch.await(5, TimeUnit.SECONDS));
+        stream.stop();
+
+        assertTrue("Calls should be be 1s apart", times[1] - times[0] >= delay);
     }
 }

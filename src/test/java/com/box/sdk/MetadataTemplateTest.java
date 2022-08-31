@@ -1,426 +1,418 @@
 package com.box.sdk;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.nullValue;
+import static org.junit.Assert.assertEquals;
 
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.experimental.categories.Category;
-
+import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 
 /**
  * {@link MetadataTemplate} related unit tests.
  */
 public class MetadataTemplateTest {
 
-    /**
-     * Wiremock
-     */
     @Rule
-    public final WireMockRule wireMockRule = new WireMockRule(8080);
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+    private final BoxAPIConnection api = TestUtils.getAPIConnection();
 
-    /**
-     * Unit test for {@link MetadataTemplate#getMetadataTemplate(BoxAPIConnection, String, String, String...)}.
-     */
+    @Before
+    public void setUpBaseUrl() {
+        api.setMaxRetryAttempts(1);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
+    }
+
     @Test
-    @Category(UnitTest.class)
-    public void testGetMetadataTemplateSendsCorrectRequest() {
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals(
-                        "https://api.box.com/2.0/metadata_templates/global/properties/schema"
-                                + "?fields=displayName%2Chidden",
-                        request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{\"id\": \"0\"}";
-                    }
-                };
+    public void testGetAllEnterpriseMetadataTemplatesSucceeds() throws IOException {
+        final String firstEntryID = "12345";
+        final String firstTemplateKey = "Test Template";
+        final String secondEntryID = "23131";
+        final String secondTemplateKey = "Test Template 2";
+        final String metadataTemplateURL = "/2.0/metadata_templates/enterprise";
+
+        String result = TestUtils.getFixture("BoxMetadataTemplate/GetAllEnterpriseTemplates200");
+
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(metadataTemplateURL))
+            .withQueryParam("limit", WireMock.containing("100"))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        Iterator<MetadataTemplate> templates = MetadataTemplate.getEnterpriseMetadataTemplates(this.api).iterator();
+        MetadataTemplate template = templates.next();
+
+        assertEquals(firstEntryID, template.getID());
+        assertEquals(firstTemplateKey, template.getTemplateKey());
+
+        MetadataTemplate secondTemplate = templates.next();
+
+        assertEquals(secondEntryID, secondTemplate.getID());
+        assertEquals(secondTemplateKey, secondTemplate.getTemplateKey());
+    }
+
+    @Test
+    public void testGetOptionsReturnsListOfStrings() throws IOException {
+        final String templateID = "f7a9891f";
+        final String metadataTemplateURL = "/2.0/metadata_templates/" + templateID;
+        final ArrayList<String> list = new ArrayList<>();
+        list.add("Beauty");
+        list.add("Shoes");
+        String result = TestUtils.getFixture("BoxMetadataTemplate/GetMetadataTemplateOptionInfo200");
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(metadataTemplateURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        MetadataTemplate template = MetadataTemplate.getMetadataTemplateByID(this.api, templateID);
+        List<MetadataTemplate.Field> fields = template.getFields();
+        for (MetadataTemplate.Field field : fields) {
+            if (field.getKey().equals("department")) {
+                assertEquals(list, field.getOptions());
             }
-        });
-
-        MetadataTemplate.getMetadataTemplate(api, "properties", "global", "displayName", "hidden");
+        }
     }
 
-    /**
-     * Unit test for {@link MetadataTemplate#getMetadataTemplate(BoxAPIConnection)}.
-     */
     @Test
-    @Category(UnitTest.class)
-    public void testGetMetadataTemplateParseAllFieldsCorrectly() {
-        final String templateKey = "productInfo";
-        final String scope = "enterprise_12345";
-        final String displayName = "Product Info";
-        final Boolean isHidden = false;
-        final String firstFieldType = "float";
-        final String firstFieldKey = "skuNumber";
-        final String firstFieldDisplayName = "SKU Number";
-        final Boolean firstFieldIsHidden = false;
-        final String secondFieldType = "enum";
-        final String secondFieldKey = "department";
-        final String secondFieldDisplayName = "Department";
-        final Boolean secondFieldIsHidden = false;
-        final String secondFieldFirstOption = "Beauty";
-        final String secondFieldSecondOption = "Accessories";
+    public void testGetOptionsReturnsListOfOptionsObject() throws IOException {
+        final String templateID = "f7a9891f";
+        final String metadataTemplateURL = "/2.0/metadata_templates/" + templateID;
+        String result = TestUtils.getFixture("BoxMetadataTemplate/GetMetadataTemplateOptionInfo200");
 
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setBaseURL("http://localhost:8080/");
-        WireMock.stubFor(WireMock.get(WireMock.urlMatching("/metadata_templates/global/properties/schema"))
-                .willReturn(WireMock.aResponse()
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("{\n"
-                                + "    \"templateKey\": \"productInfo\",\n"
-                                + "    \"scope\": \"enterprise_12345\",\n"
-                                + "    \"displayName\": \"Product Info\",\n"
-                                + "    \"hidden\": false,\n"
-                                + "    \"fields\": [\n"
-                                + "        {\n"
-                                + "            \"type\": \"float\",\n"
-                                + "            \"key\": \"skuNumber\",\n"
-                                + "            \"displayName\": \"SKU Number\",\n"
-                                + "            \"hidden\": false\n"
-                                + "        },\n"
-                                + "        {\n"
-                                + "            \"type\": \"enum\",\n"
-                                + "            \"key\": \"department\",\n"
-                                + "            \"displayName\": \"Department\",\n"
-                                + "            \"hidden\": false,\n"
-                                + "            \"options\": [\n"
-                                + "                {\n"
-                                + "                    \"key\": \"Beauty\"\n"
-                                + "                },\n"
-                                + "                {\n"
-                                + "                    \"key\": \"Accessories\"\n"
-                                + "                }\n"
-                                + "            ]\n"
-                                + "        }\n"
-                                + "    ]\n"
-                                + "}")));
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(metadataTemplateURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
-        MetadataTemplate template = MetadataTemplate.getMetadataTemplate(api);
-        Assert.assertEquals(templateKey, template.getTemplateKey());
-        Assert.assertEquals(scope, template.getScope());
-        Assert.assertEquals(displayName, template.getDisplayName());
-        Assert.assertEquals(isHidden, template.getIsHidden());
-        List<MetadataTemplate.Field> templateFields = template.getFields();
-        Assert.assertEquals(firstFieldType, templateFields.get(0).getType());
-        Assert.assertEquals(firstFieldKey, templateFields.get(0).getKey());
-        Assert.assertEquals(firstFieldDisplayName, templateFields.get(0).getDisplayName());
-        Assert.assertEquals(firstFieldIsHidden, templateFields.get(0).getIsHidden());
-        Assert.assertEquals(secondFieldType, templateFields.get(1).getType());
-        Assert.assertEquals(secondFieldKey, templateFields.get(1).getKey());
-        Assert.assertEquals(secondFieldDisplayName, templateFields.get(1).getDisplayName());
-        Assert.assertEquals(secondFieldIsHidden, templateFields.get(1).getIsHidden());
-        Assert.assertEquals(secondFieldFirstOption, templateFields.get(1).getOptions().get(0));
-        Assert.assertEquals(secondFieldSecondOption, templateFields.get(1).getOptions().get(1));
+        MetadataTemplate template = MetadataTemplate.getMetadataTemplateByID(this.api, templateID);
+        List<MetadataTemplate.Field> fields = template.getFields();
 
-    }
-
-    /**
-     * Unit test for {@link MetadataTemplate#getEnterpriseMetadataTemplates(BoxAPIConnection, String...)}.
-     */
-    @Test(expected = NoSuchElementException.class)
-    @Category(UnitTest.class)
-    public void testGetEnterpriseMetadataTemplatesSendsCorrectRequest() {
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals(
-                        "https://api.box.com/2.0/metadata_templates/enterprise?fields=displayName%2Chidden&limit=100",
-                        request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{\"entries\":[]}";
-                    }
-                };
+        for (MetadataTemplate.Field field : fields) {
+            if (field.getKey().equals("department")) {
+                List<MetadataTemplate.Option> options = field.getOptionsObjects();
+                MetadataTemplate.Option firstOption = options.get(0);
+                MetadataTemplate.Option secondOption = options.get(1);
+                assertEquals("Beauty", firstOption.getKey());
+                assertEquals("f7a9895f", firstOption.getID());
+                assertEquals("Shoes", secondOption.getKey());
+                assertEquals("f7a9896f", secondOption.getID());
             }
-        });
-
-        Iterator<MetadataTemplate> iterator =
-                MetadataTemplate.getEnterpriseMetadataTemplates(api, "displayName", "hidden").iterator();
-        iterator.next();
-    }
-
-    /**
-     * Unit test for {@link MetadataTemplate#getEnterpriseMetadataTemplates(BoxAPIConnection, String...)}.
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testGetEnterpriseMetadataTemplatesParseAllFieldsCorrectly() {
-        final String firstEntryTemplateKey = "documentFlow";
-        final String firstEntryScope = "enterprise_12345";
-        final String firstEntryDisplayName = "Document Flow";
-        final Boolean firstEntryIsHidden = false;
-        final String firstEntryFieldType = "string";
-        final String firstEntryFieldKey = "currentDocumentStage";
-        final String firstEntryFieldDisplayName = "Current Document Stage";
-        final Boolean firstEntryFieldIsHidden = false;
-        final String firstEntryFieldDescription = "What stage in the process the document is in";
-        final String secondEntryTemplateKey = "productInfo";
-        final String secondEntryScope = "enterprise_12345";
-        final String secondEntryDisplayName = "Product Info";
-        final Boolean secondEntryIsHidden = false;
-        final String secondEntryFieldType = "enum";
-        final String secondEntryFieldKey = "department";
-        final String secondEntryFieldDisplayName = "Department";
-        final Boolean secondEntryFieldIsHidden = false;
-        final String secondEntryFieldFirstOption = "Beauty";
-        final String secondEntryFieldSecondOption = "Shoes";
-
-        final JsonObject fakeJSONResponse = JsonObject.readFrom("{\n"
-                + "    \"limit\": 100,\n"
-                + "    \"entries\": [\n"
-                + "        {\n"
-                + "            \"templateKey\": \"documentFlow\",\n"
-                + "            \"scope\": \"enterprise_12345\",\n"
-                + "            \"displayName\": \"Document Flow\",\n"
-                + "            \"hidden\": false,\n"
-                + "            \"fields\": [\n"
-                + "                {\n"
-                + "                    \"type\": \"string\",\n"
-                + "                    \"key\": \"currentDocumentStage\",\n"
-                + "                    \"displayName\": \"Current Document Stage\",\n"
-                + "                    \"hidden\": false,\n"
-                + "                    \"description\": \"What stage in the process the document is in\"\n"
-                + "                }\n"
-                + "            ]\n"
-                + "        },\n"
-                + "        {\n"
-                + "            \"templateKey\": \"productInfo\",\n"
-                + "            \"scope\": \"enterprise_12345\",\n"
-                + "            \"displayName\": \"Product Info\",\n"
-                + "            \"hidden\": false,\n"
-                + "            \"fields\": [\n"
-                + "                {\n"
-                + "                    \"type\": \"enum\",\n"
-                + "                    \"key\": \"department\",\n"
-                + "                    \"displayName\": \"Department\",\n"
-                + "                    \"hidden\": false,\n"
-                + "                    \"options\": [\n"
-                + "                        {\n"
-                + "                            \"key\": \"Beauty\"\n"
-                + "                        },\n"
-                + "                        {\n"
-                + "                            \"key\": \"Shoes\"\n"
-                + "                        }\n"
-                + "                    ]\n"
-                + "                }\n"
-                + "            ]\n"
-                + "        }\n"
-                + "    ],\n"
-                + "    \"next_marker\": null,\n"
-                + "    \"prev_marker\": null\n"
-                + "}");
-
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeJSONResponse));
-
-        Iterator<MetadataTemplate> iterator = MetadataTemplate.getEnterpriseMetadataTemplates(api).iterator();
-        MetadataTemplate template = iterator.next();
-        Assert.assertEquals(firstEntryTemplateKey, template.getTemplateKey());
-        Assert.assertEquals(firstEntryScope, template.getScope());
-        Assert.assertEquals(firstEntryDisplayName, template.getDisplayName());
-        Assert.assertEquals(firstEntryIsHidden, template.getIsHidden());
-        Assert.assertEquals(firstEntryFieldType, template.getFields().get(0).getType());
-        Assert.assertEquals(firstEntryFieldKey, template.getFields().get(0).getKey());
-        Assert.assertEquals(firstEntryFieldDisplayName, template.getFields().get(0).getDisplayName());
-        Assert.assertEquals(firstEntryFieldIsHidden, template.getFields().get(0).getIsHidden());
-        Assert.assertEquals(firstEntryFieldDescription, template.getFields().get(0).getDescription());
-        template = iterator.next();
-        Assert.assertEquals(secondEntryTemplateKey, template.getTemplateKey());
-        Assert.assertEquals(secondEntryScope, template.getScope());
-        Assert.assertEquals(secondEntryDisplayName, template.getDisplayName());
-        Assert.assertEquals(secondEntryIsHidden, template.getIsHidden());
-        Assert.assertEquals(secondEntryFieldType, template.getFields().get(0).getType());
-        Assert.assertEquals(secondEntryFieldKey, template.getFields().get(0).getKey());
-        Assert.assertEquals(secondEntryFieldDisplayName, template.getFields().get(0).getDisplayName());
-        Assert.assertEquals(secondEntryFieldIsHidden, template.getFields().get(0).getIsHidden());
-        Assert.assertEquals(secondEntryFieldFirstOption, template.getFields().get(0).getOptions().get(0));
-        Assert.assertEquals(secondEntryFieldSecondOption, template.getFields().get(0).getOptions().get(1));
-        Assert.assertFalse(iterator.hasNext());
+        }
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void createMetadataTemplateSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
+    public void testSetOptionReturnsCorrectly() throws IOException {
+        final String metadataTemplateURL = "/2.0/metadata_templates/schema";
+        String result = TestUtils.getFixture("BoxMetadataTemplate/CreateMetadataTemplate200");
 
-        MetadataTemplate.Field ctField = new MetadataTemplate.Field();
-        ctField.setType("string");
-        ctField.setKey("customerTeam");
-        ctField.setDisplayName("Customer Team");
+        JsonObject keyObject = new JsonObject();
+        keyObject.add("key", "FY16");
+
+        JsonObject secondKeyObject = new JsonObject();
+        secondKeyObject.add("key", "FY17");
+
+        JsonArray optionsArray = new JsonArray();
+        optionsArray.add(keyObject);
+        optionsArray.add(secondKeyObject);
+
+        JsonObject enumObject = new JsonObject();
+        enumObject.add("type", "enum")
+            .add("key", "fy")
+            .add("displayName", "FY")
+            .add("options", optionsArray);
+
+        JsonArray fieldsArray = new JsonArray();
+        fieldsArray.add(enumObject);
+
+        JsonObject templateBody = new JsonObject();
+        templateBody.add("scope", "enterprise")
+            .add("displayName", "Document Flow 03")
+            .add("hidden", false)
+            .add("templateKey", "documentFlow03")
+            .add("fields", fieldsArray);
+
+        wireMockRule.stubFor(WireMock.post(WireMock.urlPathEqualTo(metadataTemplateURL))
+            .withRequestBody(WireMock.equalToJson(templateBody.toString()))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
         MetadataTemplate.Field fyField = new MetadataTemplate.Field();
         fyField.setType("enum");
         fyField.setKey("fy");
         fyField.setDisplayName("FY");
 
-        List<String> options = new ArrayList<String>();
+        List<String> options = new ArrayList<>();
         options.add("FY16");
         options.add("FY17");
         fyField.setOptions(options);
 
-        List<MetadataTemplate.Field> fields = new ArrayList<MetadataTemplate.Field>();
-        fields.add(ctField);
+        List<MetadataTemplate.Field> fields = new ArrayList<>();
         fields.add(fyField);
 
-        try {
-            MetadataTemplate template = MetadataTemplate.createMetadataTemplate(api, "enterprise",
-                    "documentFlow03", "Document Flow 03", false, fields);
-        } catch (BoxAPIException apiEx) {
-            //Delete MetadataTemplate is yet to be supported. Due to that template might be existing already.
-            //This expects the conflict error. To check the MetadataTemplate creation, please replace the id.
-            Assert.assertEquals(apiEx.getResponseCode(), 409);
-            Assert.assertTrue(apiEx.getResponse().contains("Template key already exists in this scope"));
-        }
+        MetadataTemplate template = MetadataTemplate.createMetadataTemplate(this.api, "enterprise",
+            "documentFlow03", "Document Flow 03", false, fields);
 
-        MetadataTemplate storedTemplate = MetadataTemplate.getMetadataTemplate(api, "documentFlow03");
-        Assert.assertNotNull(storedTemplate);
+        assertEquals("FY16", template.getFields().get(0).getOptions().get(0));
+        assertEquals("FY17", template.getFields().get(0).getOptions().get(1));
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void updateMetadataTemplateSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
+    public void testUpdateMetadataReturnsCorrectly() throws IOException {
+        final String metadataTemplateURL = "/2.0/metadata_templates/enterprise/documentFlow03/schema";
+        String result = TestUtils.getFixture("BoxMetadataTemplate/UpdateMetadataTemplate200");
 
-        List<MetadataTemplate.FieldOperation> fieldOperations = new ArrayList<MetadataTemplate.FieldOperation>();
-        MetadataTemplate.FieldOperation editField = new MetadataTemplate.FieldOperation();
-        editField.setOp(MetadataTemplate.Operation.editField);
-        editField.setFieldKey("customerTeam");
+        JsonObject editCopyDataObject = new JsonObject();
+        editCopyDataObject.add("copyInstanceOnItemCopy", true);
 
-        MetadataTemplate.Field customerTeam = new MetadataTemplate.Field();
-        customerTeam.setDisplayName("Customer Team modified");
-        editField.setData(customerTeam);
-        fieldOperations.add(editField);
+        JsonObject editCopyOperation = new JsonObject();
+        editCopyOperation.add("op", "editTemplate");
+        editCopyOperation.add("data", editCopyDataObject);
 
-        MetadataTemplate.FieldOperation newField = new MetadataTemplate.FieldOperation();
-        newField.setOp(MetadataTemplate.Operation.addField);
+        JsonArray body = new JsonArray();
+        body.add(editCopyOperation);
 
-        MetadataTemplate.Field deptField = new MetadataTemplate.Field();
-        deptField.setType("enum");
-        deptField.setKey("department");
-        deptField.setDisplayName("Department");
+        wireMockRule.stubFor(WireMock.put(WireMock.urlPathEqualTo(metadataTemplateURL))
+            .withRequestBody(WireMock.equalToJson(body.toString()))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
-        List<String> options = new ArrayList<String>();
-        options.add("Beauty");
-        options.add("Shoes");
-        deptField.setOptions(options);
-        newField.setData(deptField);
+        List<MetadataTemplate.FieldOperation> fieldOperations = new ArrayList<>();
 
-        fieldOperations.add(newField);
+        MetadataTemplate.FieldOperation editTemplate = new MetadataTemplate.FieldOperation();
+        editTemplate.setOp(MetadataTemplate.Operation.editTemplate);
+        MetadataTemplate.Field copyInstanceField = new MetadataTemplate.Field();
+        copyInstanceField.setCopyInstanceOnItemCopy(Boolean.TRUE);
+        editTemplate.setData(copyInstanceField);
 
-        try {
-            MetadataTemplate template = MetadataTemplate.updateMetadataTemplate(api,
-                    "enterprise", "documentFlow03", fieldOperations);
-            Assert.assertNotNull(template);
-        } catch (BoxAPIException apiEx) {
-            //Delete MetadataTemplate is yet to be supported. Due to that template might be existing already.
-            //This 400 invalid request error if the field already exists.
-            Assert.assertEquals(apiEx.getResponseCode(), 400);
-        }
+        fieldOperations.add(editTemplate);
 
-        MetadataTemplate updatedTemplate = MetadataTemplate.getMetadataTemplate(api, "documentFlow03");
-        List<MetadataTemplate.Field> fields = updatedTemplate.getFields();
-
-        boolean found = false;
-        for (MetadataTemplate.Field field: fields) {
-            if ("department".equals(field.getKey())) {
-                Assert.assertEquals("enum", field.getType());
-                Assert.assertEquals("Department", field.getDisplayName());
-                Assert.assertEquals(2, field.getOptions().size());
-
-                found = true;
-            }
-        }
-
-        Assert.assertEquals(found, true);
+        MetadataTemplate template = MetadataTemplate.updateMetadataTemplate(this.api, "enterprise",
+            "documentFlow03", fieldOperations);
+        assertEquals("Copy instance on item copy not set", true, template.getCopyInstanceOnItemCopy());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void getAllMetadataSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[getAllMetadataSucceeds] Test File.txt";
-        byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
+    public void testDeprecatedExecuteMetadataQuery() throws IOException {
+        final String metadataQueryURL = "/2.0/metadata_queries/execute_read";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
+        final String from = "enterprise_67890.relayWorkflowInformation";
+        final String query = "templateName >= :arg";
+        final JsonObject queryParameters = new JsonObject().add("arg", "Templ Name");
+        final String ancestorFolderId = "0";
+        final String indexName = null;
+        final JsonArray orderBy = null;
+        final int limit = 2;
+        final String marker = null;
 
-        uploadedFile.createMetadata(new Metadata().add("/firstName", "John").add("/lastName", "Smith"));
-        Metadata check1 = uploadedFile.getMetadata();
-        Assert.assertNotNull(check1);
-        Assert.assertEquals("John", check1.get("/firstName"));
-        Assert.assertEquals("Smith", check1.get("/lastName"));
+        // First request will return a page of results with two items
+        String request1 = TestUtils.getFixture("BoxMetadataTemplate/MetadataQuery1stRequest");
+        String result1 = TestUtils.getFixture("BoxMetadataTemplate/MetadataQuery1stResponse200");
+        wireMockRule.stubFor(post(urlPathEqualTo(metadataQueryURL))
+            .withRequestBody(equalToJson(request1))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result1)));
 
-        MetadataTemplate.Field ctField = new MetadataTemplate.Field();
-        ctField.setType("string");
-        ctField.setKey("customerTeam");
-        ctField.setDisplayName("Customer Team");
+        // Second request will contain a marker and will return a page of results with remaining one item
+        String result2 = TestUtils.getFixture("BoxMetadataTemplate/MetadataQuery2ndResponse200");
+        String request2 = TestUtils.getFixture("BoxMetadataTemplate/MetadataQuery2ndRequest");
+        wireMockRule.stubFor(post(urlPathEqualTo(metadataQueryURL))
+            .withRequestBody(equalToJson(request2))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result2)));
 
-        MetadataTemplate.Field fyField = new MetadataTemplate.Field();
-        fyField.setType("enum");
-        fyField.setKey("fy");
-        fyField.setDisplayName("FY");
+        // Make the first request and get the result
+        BoxResourceIterable<BoxMetadataQueryItem> results = MetadataTemplate.executeMetadataQuery(
+            this.api,
+            from,
+            query,
+            queryParameters,
+            ancestorFolderId,
+            indexName,
+            orderBy,
+            limit,
+            marker
+        );
 
-        List<String> options = new ArrayList<String>();
-        options.add("FY16");
-        options.add("FY17");
-        fyField.setOptions(options);
+        // First item on the first page of results
+        BoxMetadataQueryItem currBoxItem = results.iterator().next();
+        assertEquals("file", currBoxItem.getItem().getType());
+        assertEquals("123450", currBoxItem.getItem().getID());
+        assertEquals("1.jpg", currBoxItem.getItem().getName());
+        HashMap<String, ArrayList<Metadata>> metadata = currBoxItem.getMetadata();
+        assertEquals("relayWorkflowInformation", metadata.get("enterprise_67890").get(0).getTemplateName());
+        assertEquals("enterprise_67890", metadata.get("enterprise_67890").get(0).getScope());
+        assertEquals("Werk Flow 0", metadata.get("enterprise_67890").get(0).getString("/workflowName"));
 
-        List<MetadataTemplate.Field> fields = new ArrayList<MetadataTemplate.Field>();
-        fields.add(ctField);
-        fields.add(fyField);
+        // Second item on the first page of results
+        currBoxItem = results.iterator().next();
+        assertEquals("file", currBoxItem.getItem().getType());
+        assertEquals("123451", currBoxItem.getItem().getID());
+        assertEquals("2.jpg", currBoxItem.getItem().getName());
+        metadata = currBoxItem.getMetadata();
+        assertEquals("relayWorkflowInformation", metadata.get("enterprise_67890").get(0).getTemplateName());
+        assertEquals("randomTemplate", metadata.get("enterprise_67890").get(1).getTemplateName());
+        assertEquals("someTemplate", metadata.get("enterprise_123456").get(0).getTemplateName());
 
-        try {
-            MetadataTemplate template = MetadataTemplate.createMetadataTemplate(api, "enterprise",
-                    "documentFlow03", "Document Flow 03", false, fields);
-        } catch (BoxAPIException apiEx) {
-            //Delete MetadataTemplate is yet to be supported. Due to that template might be existing already.
-            //This expects the conflict error.
-            Assert.assertEquals(apiEx.getResponseCode(), 409);
-            Assert.assertTrue(apiEx.getResponse().contains("Template key already exists in this scope"));
-        }
+        // First item on the second page of results (this next call makes the second request to get the second page)
+        currBoxItem = results.iterator().next();
+        assertEquals("file", currBoxItem.getItem().getType());
+        assertEquals("123452", currBoxItem.getItem().getID());
+        assertEquals("3.jpg", currBoxItem.getItem().getName());
+        metadata = currBoxItem.getMetadata();
+        assertEquals("relayWorkflowInformation", metadata.get("enterprise_67890").get(0).getTemplateName());
+    }
 
-        MetadataTemplate storedTemplate = MetadataTemplate.getMetadataTemplate(api, "documentFlow03");
-        Assert.assertNotNull(storedTemplate);
+    @Test
+    public void testDeprecatedExecuteMetadataQueryWithFields() throws IOException {
+        final String metadataQueryURL = "/2.0/metadata_queries/execute_read";
 
-        Metadata customerMetaData = new Metadata();
-        customerMetaData.add("/customerTeam", "MyTeam");
-        customerMetaData.add("/fy", "FY17");
+        final String from = "enterprise_67890.catalogImages";
+        final String query = "photographer = :arg";
+        final JsonObject queryParameters = new JsonObject().add("arg", "Bob Dylan");
+        final String ancestorFolderId = "0";
+        final String indexName = null;
+        final String field1 = "sha1";
+        final String field2 = "name";
+        final String field3 = "id";
+        final String field4 = "metadata.enterprise_240748.catalogImages.photographer";
+        final JsonArray orderBy = null;
+        final int limit = 2;
+        final String marker = null;
 
-        uploadedFile.createMetadata("documentFlow03", "enterprise", customerMetaData);
+        JsonArray fields = new JsonArray();
+        fields.add(field1);
+        fields.add(field2);
+        fields.add(field3);
+        fields.add(field4);
+        JsonObject body = new JsonObject();
+        body.add("from", from);
+        body.add("query", query);
+        body.add("query_params", queryParameters);
+        body.add("ancestor_folder_id", ancestorFolderId);
+        body.add("limit", limit);
+        body.add("fields", fields);
 
-        Iterable<Metadata> allMetadata = uploadedFile.getAllMetadata("/firstName", "/lastName");
-        Assert.assertNotNull(allMetadata);
-        Iterator<Metadata> iter = allMetadata.iterator();
-        int numTemplates = 0;
-        while (iter.hasNext()) {
-            Metadata metadata = iter.next();
-            numTemplates++;
-            if (metadata.getTemplateName().equals("properties")) {
-                Assert.assertEquals(metadata.get("/firstName"), "John");
-                Assert.assertEquals(metadata.get("/lastName"), "Smith");
-            }
-            if (metadata.getTemplateName().equals("documentFlow03")) {
-                Assert.assertEquals(metadata.get("/customerTeam"), "MyTeam");
-                Assert.assertEquals(metadata.get("/fy"), "FY17");
-            }
-        }
-        Assert.assertEquals(numTemplates, 2);
-        uploadedFile.delete();
+        // First request will return a page of results with two items
+        String result = TestUtils.getFixture("BoxMetadataTemplate/MetadataQueryResponseForFields200");
+        wireMockRule.stubFor(post(urlPathEqualTo(metadataQueryURL))
+            .withRequestBody(equalToJson(body.toString()))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        // Make the first request and get the result
+        BoxResourceIterable<BoxItem.Info> results = MetadataTemplate.executeMetadataQuery(this.api, from, query,
+            queryParameters, ancestorFolderId, indexName, orderBy, limit, marker, field1, field2, field3, field4);
+
+        // First item on the first page of results
+        BoxFile.Info fileBoxItem = (BoxFile.Info) results.iterator().next();
+        assertEquals("file", fileBoxItem.getType());
+        assertEquals("1244738582", fileBoxItem.getID());
+        assertEquals("Very Important.docx", fileBoxItem.getName());
+        Metadata fileMetadata = fileBoxItem.getMetadata("catalogImages", "enterprise_67890");
+        assertEquals("catalogImages", fileMetadata.getTemplateName());
+        assertEquals("enterprise_67890", fileMetadata.getScope());
+        assertEquals("Bob Dylan", fileMetadata.getString("/photographer"));
+
+        // Second item on the first page of results
+        BoxFolder.Info folderBoxItem = (BoxFolder.Info) results.iterator().next();
+        assertEquals("folder", folderBoxItem.getType());
+        assertEquals("124242482", folderBoxItem.getID());
+        assertEquals("Also Important.docx", folderBoxItem.getName());
+        Metadata folderMetadata = folderBoxItem.getMetadata("catalogImages", "enterprise_67890");
+        assertEquals("catalogImages", folderMetadata.getTemplateName());
+        assertEquals("enterprise_67890", folderMetadata.getScope());
+        assertEquals("Bob Dylan", folderMetadata.getString("/photographer"));
+    }
+
+    @Test
+    public void testExecuteMetadataQueryWithFields() throws IOException {
+        final String metadataQueryURL = "/2.0/metadata_queries/execute_read";
+
+        final String from = "enterprise_67890.catalogImages";
+        final String query = "photographer = :arg";
+        final String ancestorFolderId = "0";
+        final String field1 = "sha1";
+        final String field2 = "name";
+        final String field3 = "id";
+        final String field4 = "metadata.enterprise_240748.catalogImages.photographer";
+        final int limit = 2;
+
+        JsonArray fields = new JsonArray();
+        fields.add(field1);
+        fields.add(field2);
+        fields.add(field3);
+        fields.add(field4);
+        JsonObject body = new JsonObject();
+        body.add("from", from);
+        body.add("query", query);
+        body.add("query_params", new JsonObject().add("arg", "Bob Dylan"));
+        body.add("ancestor_folder_id", ancestorFolderId);
+        body.add("limit", limit);
+        body.add("fields", fields);
+
+        // First request will return a page of results with two items
+        String result = TestUtils.getFixture("BoxMetadataTemplate/MetadataQueryResponseForFields200");
+        wireMockRule.stubFor(post(urlPathEqualTo(metadataQueryURL))
+            .withRequestBody(equalToJson(body.toString()))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        // Make the first request and get the result
+        MetadataQuery queryBody = new MetadataQuery(from, limit)
+            .setQuery(query)
+            .addParameter("arg", "Bob Dylan")
+            .setAncestorFolderId(ancestorFolderId)
+            .setFields(field1, field2, field3, field4);
+        BoxResourceIterable<BoxItem.Info> results = MetadataTemplate.executeMetadataQuery(this.api, queryBody);
+
+        // First item on the first page of results
+        BoxFile.Info fileBoxItem = (BoxFile.Info) results.iterator().next();
+        assertEquals("file", fileBoxItem.getType());
+        assertEquals("1244738582", fileBoxItem.getID());
+        assertEquals("Very Important.docx", fileBoxItem.getName());
+        Metadata fileMetadata = fileBoxItem.getMetadata("catalogImages", "enterprise_67890");
+        assertEquals("catalogImages", fileMetadata.getTemplateName());
+        assertEquals("enterprise_67890", fileMetadata.getScope());
+        assertEquals("Bob Dylan", fileMetadata.getString("/photographer"));
+
+        // Second item on the first page of results
+        BoxFolder.Info folderBoxItem = (BoxFolder.Info) results.iterator().next();
+        assertEquals("folder", folderBoxItem.getType());
+        assertEquals("124242482", folderBoxItem.getID());
+        assertEquals("Also Important.docx", folderBoxItem.getName());
+        Metadata folderMetadata = folderBoxItem.getMetadata("catalogImages", "enterprise_67890");
+        assertEquals("catalogImages", folderMetadata.getTemplateName());
+        assertEquals("enterprise_67890", folderMetadata.getScope());
+        assertEquals("Bob Dylan", folderMetadata.getString("/photographer"));
+    }
+
+    @Test
+    public void canSetOptionsAsNullOnAField() {
+        MetadataTemplate.Field field = new MetadataTemplate.Field();
+
+        field.setOptions(null);
+
+        assertThat(field.getOptions(), nullValue());
     }
 }

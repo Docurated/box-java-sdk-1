@@ -1,29 +1,47 @@
 package com.box.sdk;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.box.sdk.BoxAPIConnection.ResourceLinkType;
+import com.eclipsesource.json.JsonObject;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.StringTokenizer;
-
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
-
-import com.eclipsesource.json.JsonObject;
 
 public class BoxAPIConnectionTest {
+    /**
+     * Wiremock
+     */
+    @Rule
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+
     @Test
-    @Category(UnitTest.class)
     public void canRefreshWhenGivenRefreshToken() {
         final String anyClientID = "";
         final String anyClientSecret = "";
@@ -36,7 +54,6 @@ public class BoxAPIConnectionTest {
     }
 
     @Test
-    @Category(UnitTest.class)
     public void needsRefreshWhenTokenHasExpired() {
         final String anyAccessToken = "";
 
@@ -47,7 +64,6 @@ public class BoxAPIConnectionTest {
     }
 
     @Test
-    @Category(UnitTest.class)
     public void doesNotNeedRefreshWhenTokenHasNotExpired() {
         final String anyAccessToken = "";
 
@@ -58,7 +74,6 @@ public class BoxAPIConnectionTest {
     }
 
     @Test
-    @Category(UnitTest.class)
     public void needsRefreshWhenExpiresIsZero() {
         final String anyAccessToken = "";
 
@@ -69,7 +84,6 @@ public class BoxAPIConnectionTest {
     }
 
     @Test
-    @Category(UnitTest.class)
     public void interceptorReceivesSentRequest() throws MalformedURLException {
         BoxAPIConnection api = new BoxAPIConnection("");
 
@@ -86,7 +100,6 @@ public class BoxAPIConnectionTest {
     }
 
     @Test
-    @Category(UnitTest.class)
     public void restoreConnectionThatDoesNotNeedRefresh() {
         BoxAPIConnection api = new BoxAPIConnection("fake client ID", "fake client secret", "fake access token",
             "fake refresh token");
@@ -95,236 +108,633 @@ public class BoxAPIConnectionTest {
         String state = api.save();
 
         final BoxAPIConnection restoredAPI = BoxAPIConnection.restore("fake client ID", "fake client secret", state);
-        restoredAPI.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                String tokenURLString = restoredAPI.getTokenURL().toString();
-                String requestURLString = request.getUrl().toString();
-                if (requestURLString.contains(tokenURLString)) {
-                    fail("The connection was refreshed.");
-                }
-
-                if (requestURLString.contains("folders")) {
-                    return new BoxJSONResponse() {
-                        @Override
-                        public String getJSON() {
-                            JsonObject responseJSON = new JsonObject()
-                                .add("id", "fake ID")
-                                .add("type", "folder");
-                            return responseJSON.toString();
-                        }
-                    };
-                }
-
-                fail("Unexpected request.");
-                return null;
+        restoredAPI.setRequestInterceptor(request -> {
+            String tokenURLString = restoredAPI.getTokenURL();
+            String requestURLString = request.getUrl().toString();
+            if (requestURLString.contains(tokenURLString)) {
+                fail("The connection was refreshed.");
             }
+
+            if (requestURLString.contains("folders")) {
+                return new BoxJSONResponse() {
+                    @Override
+                    public String getJSON() {
+                        JsonObject responseJSON = new JsonObject()
+                            .add("id", "fake ID")
+                            .add("type", "folder");
+                        return responseJSON.toString();
+                    }
+                };
+            }
+
+            fail("Unexpected request.");
+            return null;
         });
 
         assertFalse(restoredAPI.needsRefresh());
     }
 
     @Test
-    @Category(UnitTest.class)
-    public void getAuthorizetionURLSuccess() throws Exception {
-        List<String> scopes = new ArrayList<String>();
+    public void getDefaultAuthorizationURLSuccess() throws Exception {
+        List<String> scopes = new ArrayList<>();
         scopes.add("root_readwrite");
         scopes.add("manage_groups");
 
         URL authURL = BoxAPIConnection.getAuthorizationURL("wncmz88sacf5oyaxf502dybcruqbzzy0",
-                new URI("http://localhost:3000"), "test", scopes);
+            new URI("http://localhost:3000"), "test", scopes);
 
-        Assert.assertTrue(authURL.toString().startsWith("https://account.box.com/api/oauth2/authorize"));
-
-        StringTokenizer tokenizer = new StringTokenizer(authURL.getQuery(), "&");
-        while (tokenizer.hasMoreTokens()) {
-            String token = tokenizer.nextToken();
-            if (token.startsWith("client_id")) {
-                Assert.assertEquals(token, "client_id=wncmz88sacf5oyaxf502dybcruqbzzy0");
-            } else if (token.startsWith("response_type")) {
-                Assert.assertEquals(token, "response_type=code");
-            } else if (token.startsWith("redirect_uri")) {
-                Assert.assertEquals(token, "redirect_uri=http%3A%2F%2Flocalhost%3A3000");
-            } else if (token.startsWith("state")) {
-                Assert.assertEquals(token, "state=test");
-            } else if (token.startsWith("scope")) {
-                Assert.assertEquals(token, "scope=root_readwrite+manage_groups");
-            }
-        }
+        String query = authURL.getQuery();
+        assertThat(query, containsString("client_id=wncmz88sacf5oyaxf502dybcruqbzzy0"));
+        assertThat(query, containsString("response_type=code"));
+        assertThat(query, containsString("redirect_uri=http%3A%2F%2Flocalhost%3A3000"));
+        assertThat(query, containsString("state=test"));
+        assertThat(query, containsString("scope=root_readwrite+manage_groups"));
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void requestIsSentNormallyWhenInterceptorReturnsNullResponse() throws MalformedURLException {
+    public void getAuthorizationURLSuccess() throws Exception {
+        List<String> scopes = new ArrayList<>();
+        scopes.add("root_readwrite");
+        scopes.add("manage_groups");
+
+        BoxAPIConnection api = new BoxAPIConnection("wncmz88sacf5oyaxf502dybcruqbzzy0", "some_secret");
+        api.setBaseAuthorizationURL("https://account.my-box.com/api");
+
+        URL authURL = api.getAuthorizationURL(new URI("http://localhost:3000"), "test", scopes);
+
+        assertThat(authURL.toString(), startsWith("https://account.my-box.com/api/oauth2/authorize"));
+
+        String query = authURL.getQuery();
+        assertThat(query, containsString("client_id=wncmz88sacf5oyaxf502dybcruqbzzy0"));
+        assertThat(query, containsString("response_type=code"));
+        assertThat(query, containsString("redirect_uri=http%3A%2F%2Flocalhost%3A3000"));
+        assertThat(query, containsString("state=test"));
+        assertThat(query, containsString("scope=root_readwrite+manage_groups"));
+    }
+
+    @Test
+    public void revokeTokenCallsCorrectEndpoint() {
+
+        String accessToken = "fakeAccessToken";
+        String clientID = "fakeID";
+        String clientSecret = "fakeSecret";
+
+        BoxAPIConnection api = new BoxAPIConnection(clientID, clientSecret, accessToken, "");
+        api.setRevokeURL(format("http://localhost:%d/oauth2/revoke", wireMockRule.port()));
+
+        wireMockRule.stubFor(post(urlPathEqualTo("/oauth2/revoke"))
+            .withRequestBody(WireMock.equalTo("token=fakeAccessToken&client_id=fakeID&client_secret=fakeSecret"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{}")));
+
+        api.revokeToken();
+    }
+
+    @Test
+    public void getLowerScopedTokenRefreshesTheTokenIfNeededbyCallingGetAccessToken() {
+        BoxAPIConnection api = mock(BoxAPIConnection.class);
+
+        List<String> scopes = new ArrayList<>();
+        scopes.add("item_preview");
+
+        when(api.getTokenURL()).thenReturn("https://api.box.com/oauth2/token");
+        when(api.getLowerScopedToken(scopes, null)).thenCallRealMethod();
+        try {
+            api.getLowerScopedToken(scopes, null);
+        } catch (RuntimeException e) {
+            //Ignore it
+        }
+        verify(api).getAccessToken();
+    }
+
+    @Test
+    public void checkAllResourceLinkTypes() {
+        this.getResourceLinkTypeFromURLString(
+            "https://api.box.com/2.0/files/1234567890", ResourceLinkType.APIEndpoint);
+        this.getResourceLinkTypeFromURLString(
+            "https://example.box.com/s/qwertyuiop1234567890asdfghjkl", ResourceLinkType.SharedLink);
+        this.getResourceLinkTypeFromURLString(
+            "https://example.app.box.com/notes/09876321?s=zxcvm123458asdf", ResourceLinkType.SharedLink);
+        this.getResourceLinkTypeFromURLString(
+            null, ResourceLinkType.Unknown);
+        this.getResourceLinkTypeFromURLString(
+            "", ResourceLinkType.Unknown);
+        this.getResourceLinkTypeFromURLString(
+            "qwertyuiopasdfghjklzxcvbnm1234567890", ResourceLinkType.Unknown);
+    }
+
+    private void getResourceLinkTypeFromURLString(String resource, ResourceLinkType resourceLinkType) {
+        BoxAPIConnection api = mock(BoxAPIConnection.class);
+        when(api.determineResourceLinkType(resource))
+            .thenCallRealMethod();
+        ResourceLinkType actualResourceLinkType = api.determineResourceLinkType(resource);
+        assertEquals(actualResourceLinkType, resourceLinkType);
+    }
+
+    @Test
+    public void addingCustomHeadersWorks() {
+
+        final String targetHeader = "As-User";
+        final String targetHeaderValue = "12345";
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.setCustomHeader(targetHeader, targetHeaderValue);
+
+        api.setRequestInterceptor(request -> {
+            boolean isHeaderPresent = false;
+            List<BoxAPIRequest.RequestHeader> headers = request.getHeaders();
+            for (BoxAPIRequest.RequestHeader header : headers) {
+                if (header.getKey().equals(targetHeader) && header.getValue().equals(targetHeaderValue)) {
+                    isHeaderPresent = true;
+                    break;
+                }
+            }
+            Assert.assertTrue(isHeaderPresent);
+            return new BoxJSONResponse() {
+                @Override
+                public String getJSON() {
+                    return "{\"type\":\"file\",\"id\":\"98765\"}";
+                }
+            };
+        });
+
+        BoxFile file = new BoxFile(api, "98765");
+        file.getInfo();
+    }
+
+
+    @Test
+    public void removingCustomHeadersWorks() {
+
+        final String targetHeader = "As-User";
+        final String targetHeaderValue = "12345";
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.setCustomHeader(targetHeader, targetHeaderValue);
+        api.removeCustomHeader(targetHeader);
+
+        api.setRequestInterceptor(request -> {
+            boolean isHeaderPresent = false;
+            List<BoxAPIRequest.RequestHeader> headers = request.getHeaders();
+            for (BoxAPIRequest.RequestHeader header : headers) {
+                if (header.getKey().equals(targetHeader) && header.getValue().equals(targetHeaderValue)) {
+                    isHeaderPresent = true;
+                    break;
+                }
+            }
+            assertFalse(isHeaderPresent);
+            return new BoxJSONResponse() {
+                @Override
+                public String getJSON() {
+                    return "{\"type\":\"file\",\"id\":\"98765\"}";
+                }
+            };
+        });
+
+        BoxFile file = new BoxFile(api, "98765");
+        file.getInfo();
+    }
+
+    @Test
+    public void asUserAddsAsUserHeader() {
+
+        final String userID = "12345";
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.asUser(userID);
+
+        api.setRequestInterceptor(request -> {
+            boolean isHeaderPresent = false;
+            List<BoxAPIRequest.RequestHeader> headers = request.getHeaders();
+            for (BoxAPIRequest.RequestHeader header : headers) {
+                if (header.getKey().equals("As-User") && header.getValue().equals(userID)) {
+                    isHeaderPresent = true;
+                    break;
+                }
+            }
+            Assert.assertTrue(isHeaderPresent);
+            return new BoxJSONResponse() {
+                @Override
+                public String getJSON() {
+                    return "{\"type\":\"file\",\"id\":\"98765\"}";
+                }
+            };
+        });
+
+        BoxFile file = new BoxFile(api, "98765");
+        file.getInfo();
+    }
+
+    @Test
+    public void asSelfRemovesAsUserHeader() {
+
+        final String userID = "12345";
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.asUser(userID);
+        api.asSelf();
+
+        api.setRequestInterceptor(request -> {
+            boolean isHeaderPresent = false;
+            List<BoxAPIRequest.RequestHeader> headers = request.getHeaders();
+            for (BoxAPIRequest.RequestHeader header : headers) {
+                if (header.getKey().equals("As-User") && header.getValue().equals(userID)) {
+                    isHeaderPresent = true;
+                    break;
+                }
+            }
+            assertFalse(isHeaderPresent);
+            return new BoxJSONResponse() {
+                @Override
+                public String getJSON() {
+                    return "{\"type\":\"file\",\"id\":\"98765\"}";
+                }
+            };
+        });
+
+        BoxFile file = new BoxFile(api, "98765");
+        file.getInfo();
+    }
+
+    @Test
+    public void suppressNotificationsAddsBoxNotificationsHeader() {
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.suppressNotifications();
+
+        api.setRequestInterceptor(request -> {
+            boolean isHeaderPresent = false;
+            List<BoxAPIRequest.RequestHeader> headers = request.getHeaders();
+            for (BoxAPIRequest.RequestHeader header : headers) {
+                if (header.getKey().equals("Box-Notifications") && header.getValue().equals("off")) {
+                    isHeaderPresent = true;
+                    break;
+                }
+            }
+            Assert.assertTrue(isHeaderPresent);
+            return new BoxJSONResponse() {
+                @Override
+                public String getJSON() {
+                    return "{\"type\":\"file\",\"id\":\"98765\"}";
+                }
+            };
+        });
+
+        BoxFile file = new BoxFile(api, "98765");
+        file.getInfo();
+    }
+
+    @Test
+    public void enableNotificationsRemovesBoxNotificationsHeader() {
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.suppressNotifications();
+        api.enableNotifications();
+
+        api.setRequestInterceptor(request -> {
+            boolean isHeaderPresent = false;
+            List<BoxAPIRequest.RequestHeader> headers = request.getHeaders();
+            for (BoxAPIRequest.RequestHeader header : headers) {
+                if (header.getKey().equals("Box-Notifications") && header.getValue().equals("off")) {
+                    isHeaderPresent = true;
+                    break;
+                }
+            }
+            assertFalse(isHeaderPresent);
+            return new BoxJSONResponse() {
+                @Override
+                public String getJSON() {
+                    return "{\"type\":\"file\",\"id\":\"98765\"}";
+                }
+            };
+        });
+
+        BoxFile file = new BoxFile(api, "98765");
+        file.getInfo();
+    }
+
+    @Test
+    public void requestToStringWorksInsideRequestInterceptor() {
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.setRequestInterceptor(request -> {
+            String reqString = request.toString();
+            Assert.assertTrue(reqString.length() > 0);
+            return new BoxJSONResponse() {
+                @Override
+                public String getJSON() {
+                    return "{\"type\":\"file\",\"id\":\"98765\"}";
+                }
+            };
+        });
+
+        new BoxFile(api, "98765").getInfo();
+    }
+
+    @Test
+    public void shouldUseGlobalMaxRetries() {
+
+        int defaultMaxRetries = BoxGlobalSettings.getMaxRetryAttempts();
+        int newMaxRetries = defaultMaxRetries + 5;
+        BoxGlobalSettings.setMaxRetryAttempts(newMaxRetries);
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        assertEquals(newMaxRetries, api.getMaxRetryAttempts());
+
+        // Set back the original number to not interfere with other test cases
+        BoxGlobalSettings.setMaxRetryAttempts(defaultMaxRetries);
+    }
+
+    @Test
+    public void shouldUseInstanceTimeoutSettings() throws MalformedURLException {
+
+        int instanceConnectTimeout = BoxGlobalSettings.getConnectTimeout() + 1000;
+        int instanceReadTimeout = BoxGlobalSettings.getReadTimeout() + 1000;
+
         BoxAPIConnection api = new BoxAPIConnection("");
 
-        RequestInterceptor mockInterceptor = mock(RequestInterceptor.class);
-        when(mockInterceptor.onRequest(any(BoxAPIRequest.class))).thenReturn(null);
-        api.setRequestInterceptor(mockInterceptor);
+        api.setConnectTimeout(instanceConnectTimeout);
+        api.setReadTimeout(instanceReadTimeout);
 
-        BoxAPIRequest request = new BoxAPIRequest(api, new URL("http://box.com"), "GET");
-        BoxAPIResponse response = request.send();
+        BoxAPIRequest req = new BoxAPIRequest(api, new URL("https://api.box.com/2.0/users/me"), "GET");
 
-        assertThat(response.getResponseCode(), is(200));
+        assertEquals(instanceConnectTimeout, req.getConnectTimeout());
+        assertEquals(instanceReadTimeout, req.getReadTimeout());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void refreshSucceeds() {
-        final String originalAccessToken = TestConfig.getAccessToken();
-        final String originalRefreshToken = TestConfig.getRefreshToken();
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getClientID(), TestConfig.getClientSecret(),
-            originalAccessToken, originalRefreshToken);
+    public void allowsToSaveAndRestoreApplicationConnection() throws URISyntaxException {
+        // given
+        String accessToken = "access_token";
+        String clientId = "some_client_id";
+        String clientSecret = "some_client_secret";
+        String refreshToken = "some_refresh_token";
+        BoxAPIConnection api = new BoxAPIConnection(clientId, clientSecret, accessToken, refreshToken);
+        api.setRequestInterceptor(
+            request -> new BoxAPIConnectionTest.AuthenticationResponse(accessToken, refreshToken, "4245")
+        );
 
+        // when
         api.refresh();
+        String savedConnection = api.save();
+        BoxAPIConnection restoredApi = BoxAPIConnection.restore(clientId, clientSecret, savedConnection);
 
-        String actualAccessToken = api.getAccessToken();
-        String actualRefreshToken = api.getRefreshToken();
-
-        assertThat(originalRefreshToken, not(equalTo(actualRefreshToken)));
-        assertThat(originalAccessToken, not(equalTo(actualAccessToken)));
-
-        TestConfig.setAccessToken(actualAccessToken);
-        TestConfig.setRefreshToken(actualRefreshToken);
+        // then
+        assertThat(api.getAccessToken(), is(restoredApi.getAccessToken()));
+        assertThat(api.getLastRefresh(), is(restoredApi.getLastRefresh()));
+        assertThat(api.getExpires(), is(restoredApi.getExpires()));
+        assertThat(api.getUserAgent(), is(restoredApi.getUserAgent()));
+        assertThat(api.getTokenURL(), is(restoredApi.getTokenURL()));
+        assertThat(api.getRevokeURL(), is(restoredApi.getRevokeURL()));
+        assertThat(
+            api.getAuthorizationURL(new URI("https://redirect.me"), "test", new ArrayList<>()),
+            is(restoredApi.getAuthorizationURL(new URI("https://redirect.me"), "test", new ArrayList<>()))
+        );
+        assertThat(api.getBaseURL(), is(restoredApi.getBaseURL()));
+        assertThat(api.getBaseAppUrl(), is(restoredApi.getBaseAppUrl()));
+        assertThat(api.getBaseUploadURL(), is(restoredApi.getBaseUploadURL()));
+        assertThat(api.getAutoRefresh(), is(restoredApi.getAutoRefresh()));
+        assertThat(api.getMaxRetryAttempts(), is(restoredApi.getMaxRetryAttempts()));
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void refreshesWhenGetAccessTokenIsCalledAndTokenHasExpired() {
-        final String originalAccessToken = TestConfig.getAccessToken();
-        final String originalRefreshToken = TestConfig.getRefreshToken();
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getClientID(), TestConfig.getClientSecret(),
-            originalAccessToken, originalRefreshToken);
-        api.setExpires(-1);
+    public void successfullyRestoresConnectionWithDeprecatedSettings() throws IOException {
+        String restoreState = TestUtils.getFixture("BoxAPIConnection/State");
+        String restoreStateDeprecated = TestUtils.getFixture("BoxAPIConnection/StateDeprecated");
 
-        String actualAccessToken = api.getAccessToken();
-        String actualRefreshToken = api.getRefreshToken();
+        BoxAPIConnection api =
+            BoxAPIConnection.restore("some_client_id", "some_client_secret", restoreState);
+        String savedStateAPI = api.save();
 
-        assertThat(originalRefreshToken, not(equalTo(actualRefreshToken)));
-        assertThat(originalAccessToken, not(equalTo(actualAccessToken)));
+        BoxAPIConnection deprecatedAPI =
+            BoxAPIConnection.restore("some_client_id", "some_client_secret", restoreStateDeprecated);
+        String savedStateAPIDeprecated = deprecatedAPI.save();
 
-        TestConfig.setAccessToken(actualAccessToken);
-        TestConfig.setRefreshToken(actualRefreshToken);
+        assertEquals(api.getMaxRetryAttempts(), deprecatedAPI.getMaxRetryAttempts());
+        assertEquals(savedStateAPI, savedStateAPIDeprecated);
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void doesNotRefreshWhenGetAccessTokenIsCalledAndTokenHasNotExpired() {
-        final String originalAccessToken = TestConfig.getAccessToken();
-        final String originalRefreshToken = TestConfig.getRefreshToken();
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getClientID(), TestConfig.getClientSecret(),
-            originalAccessToken, originalRefreshToken);
-        api.setExpires(Long.MAX_VALUE);
+    public void setBaseUrls() {
+        BoxAPIConnection api = new BoxAPIConnection(
+            "some_client_id", "some_client_secret", "some_access_token", "some_refresh_token"
+        );
+        String baseURL = "https://my-base.url";
+        String baseUploadURL = "https://my-base-upload.url";
+        String baseAppURL = "https://my-base-app.url";
+        api.setBaseURL(baseURL);
+        api.setBaseUploadURL(baseUploadURL);
+        api.setBaseAppUrl(baseAppURL);
 
-        String actualAccessToken = api.getAccessToken();
-        String actualRefreshToken = api.getRefreshToken();
-
-        assertThat(originalRefreshToken, equalTo(actualRefreshToken));
-        assertThat(originalAccessToken, equalTo(actualAccessToken));
-
-        TestConfig.setAccessToken(actualAccessToken);
-        TestConfig.setRefreshToken(actualRefreshToken);
+        assertThat(api.getBaseURL(), is(baseURL + "/2.0/"));
+        assertThat(api.getBaseUploadURL(), is(baseUploadURL + "/2.0/"));
+        assertThat(api.getBaseAppUrl(), is(baseAppURL));
+        assertThat(api.getRevokeURL(), is(baseURL + "/oauth2/revoke"));
+        assertThat(api.getTokenURL(), is(baseURL + "/oauth2/token"));
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void successfullySavesAndRestoresConnection() {
-        final String originalAccessToken = TestConfig.getAccessToken();
-        final String originalRefreshToken = TestConfig.getRefreshToken();
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getClientID(), TestConfig.getClientSecret(),
-            originalAccessToken, originalRefreshToken);
-        String state = api.save();
+    public void canOverrideTokenUrl() {
+        BoxAPIConnection api = new BoxAPIConnection(
+            "some_client_id", "some_client_secret", "some_access_token", "some_refresh_token"
+        );
 
-        BoxAPIConnection restoredAPI = BoxAPIConnection.restore(TestConfig.getClientID(), TestConfig.getClientSecret(),
-            state);
-        BoxFolder.Info rootFolderInfo = BoxFolder.getRootFolder(restoredAPI).getInfo();
+        api.setBaseURL("https://my-base.url");
+        String tokenURL = "https://my-token.url";
+        api.setTokenURL(tokenURL);
 
-        TestConfig.setAccessToken(restoredAPI.getAccessToken());
-        TestConfig.setRefreshToken(restoredAPI.getRefreshToken());
+        assertThat(api.getTokenURL(), is("https://my-token.url"));
     }
 
     @Test
-    @Category(IntegrationTestJWT.class)
-    public void developerEditionAppAuthWorks() {
-        final String enterpriseId = TestConfig.getEnterpriseID();
-        final String clientId = TestConfig.getClientID();
-        final String clientSecret = TestConfig.getClientSecret();
-        final String privateKey = TestConfig.getPrivateKey();
-        final String privateKeyPassword = TestConfig.getPrivateKeyPassword();
-        final String publicKeyID = TestConfig.getPublicKeyID();
+    public void canOverrideRevokeUrl() {
+        BoxAPIConnection api = new BoxAPIConnection(
+            "some_client_id", "some_client_secret", "some_access_token", "some_refresh_token"
+        );
 
-        JWTEncryptionPreferences encryptionPref = new JWTEncryptionPreferences();
-        encryptionPref.setPrivateKey(privateKey);
-        encryptionPref.setPrivateKeyPassword(privateKeyPassword);
-        encryptionPref.setPublicKeyID(publicKeyID);
-        encryptionPref.setEncryptionAlgorithm(EncryptionAlgorithm.RSA_SHA_256);
+        api.setBaseURL("https://my-base.url");
+        String myRevokeURL = "https://my-revoke.url";
+        api.setRevokeURL(myRevokeURL);
 
-        IAccessTokenCache accessTokenCache = new InMemoryLRUAccessTokenCache(100);
+        assertThat(api.getRevokeURL(), is("https://my-revoke.url"));
+    }
 
-        BoxDeveloperEditionAPIConnection api = BoxDeveloperEditionAPIConnection.getAppEnterpriseConnection(enterpriseId,
-            clientId, clientSecret, encryptionPref, accessTokenCache);
+    @Test
+    public void allowsToSaveAndRestoreApplicationConnectionWithBaseUrlSet() throws URISyntaxException {
+        // given
+        String refreshToken = "some_refresh_token";
+        BoxAPIConnection api = new BoxAPIConnection(
+            "some_client_id", "some_client_secret", "access_token", refreshToken
+        );
+        api.setBaseURL("https://my-base.url");
+        api.setBaseUploadURL("https://my-base-upload.url");
+        api.setBaseAuthorizationURL("https://my-authorization.url");
+        api.setRevokeURL("https://my-revoke.url");
+        api.setTokenURL("https://my-token.url");
+        api.setRequestInterceptor(
+            request -> new BoxAPIConnectionTest.AuthenticationResponse("access_token", refreshToken, "4245")
+        );
 
-        assertThat(api.getAccessToken(), not(equalTo(null)));
-
-        final String name = "app user name";
-        BoxUser.Info createdUserInfo = BoxUser.createAppUser(api, name);
-        final String appUserId = createdUserInfo.getID();
-
-        assertThat(createdUserInfo.getID(), not(equalTo(null)));
-        assertThat(createdUserInfo.getName(), equalTo(name));
-
-        BoxUser appUser = new BoxUser(api, appUserId);
-
-        final String newName = "app user updated name";
-        createdUserInfo.setName(newName);
-        appUser.updateInfo(createdUserInfo);
-
-        assertThat(createdUserInfo.getName(), equalTo(newName));
-
-        appUser.delete(false, true);
-
+        // when
         api.refresh();
+        String savedConnection = api.save();
+        BoxAPIConnection restoredApi =
+            BoxAPIConnection.restore("some_client_id", "some_client_secret", savedConnection);
+
+        // then
+        assertThat(api.getBaseURL(), is(restoredApi.getBaseURL()));
+        assertThat(api.getBaseAppUrl(), is(restoredApi.getBaseAppUrl()));
+        assertThat(api.getBaseUploadURL(), is(restoredApi.getBaseUploadURL()));
+        assertThat(api.getRevokeURL(), is(restoredApi.getRevokeURL()));
+        assertThat(api.getTokenURL(), is(restoredApi.getTokenURL()));
+        assertThat(
+            api.getAuthorizationURL(new URI("https://my.redirect"), "test", new ArrayList<>()),
+            is(restoredApi.getAuthorizationURL(new URI("https://my.redirect"), "test", new ArrayList<>()))
+        );
     }
 
     @Test
-    @Category(IntegrationTestJWT.class)
-    public void developerEditionAppUserWorks() {
-        final String enterpriseId = TestConfig.getEnterpriseID();
-        final String clientId = TestConfig.getClientID();
-        final String clientSecret = TestConfig.getClientSecret();
-        final String privateKey = TestConfig.getPrivateKey();
-        final String privateKeyPassword = TestConfig.getPrivateKeyPassword();
-        final String publicKeyID = TestConfig.getPublicKeyID();
+    public void usesCorrectTokenUrlToAuthenticateWhenBaseUrlIsSet() {
+        String code = "fakeCode";
+        String clientID = "fakeID";
+        String clientSecret = "fakeSecret";
 
-        JWTEncryptionPreferences encryptionPref = new JWTEncryptionPreferences();
-        encryptionPref.setPrivateKey(privateKey);
-        encryptionPref.setPrivateKeyPassword(privateKeyPassword);
-        encryptionPref.setPublicKeyID(publicKeyID);
-        encryptionPref.setEncryptionAlgorithm(EncryptionAlgorithm.RSA_SHA_256);
+        BoxAPIConnection api = new BoxAPIConnection(clientID, clientSecret);
+        api.setAutoRefresh(false);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
+        mockAndAssertAuthentication(clientID, clientSecret, code);
 
-        IAccessTokenCache accessTokenCache = new InMemoryLRUAccessTokenCache(100);
+        api.authenticate(code);
 
-        BoxDeveloperEditionAPIConnection appAuthConnection = BoxDeveloperEditionAPIConnection
-            .getAppEnterpriseConnection(enterpriseId, clientId, clientSecret, encryptionPref, accessTokenCache);
+        assertThat(api.getAccessToken(), is("access-token"));
+        assertThat(api.getRefreshToken(), is("refresh-token"));
+    }
 
-        final String name = "app user name two";
-        BoxUser.Info createdUserInfo = BoxUser.createAppUser(appAuthConnection, name);
-        final String appUserId = createdUserInfo.getID();
+    @Test
+    public void usesCorrectTokenToAuthenticateUrlWhenTokenUrlIsSet() {
+        String code = "fakeCode";
+        String clientID = "fakeID";
+        String clientSecret = "fakeSecret";
 
-        BoxDeveloperEditionAPIConnection api = BoxDeveloperEditionAPIConnection.getAppUserConnection(appUserId,
-            clientId, clientSecret, encryptionPref, accessTokenCache);
-        BoxUser appUser = new BoxUser(api, appUserId);
+        BoxAPIConnection api = new BoxAPIConnection(clientID, clientSecret);
+        api.setAutoRefresh(false);
+        api.setTokenURL(format("http://localhost:%d/oauth2/token", wireMockRule.port()));
+        mockAndAssertAuthentication(clientID, clientSecret, code);
 
-        assertThat(api.getAccessToken(), not(equalTo(null)));
+        api.authenticate(code);
 
-        BoxUser.Info info = appUser.getInfo();
+        assertThat(api.getAccessToken(), is("access-token"));
+        assertThat(api.getRefreshToken(), is("refresh-token"));
+    }
 
-        assertThat(info.getID(), equalTo(appUserId));
-        assertThat(info.getName(), equalTo(name));
+    @Test
+    public void usesTokenUrlOverBaseUrlToAuthenticate() {
+        String code = "fakeCode";
+        String clientID = "fakeID";
+        String clientSecret = "fakeSecret";
 
-        api.refresh();
+        BoxAPIConnection api = new BoxAPIConnection(clientID, clientSecret);
+        api.setAutoRefresh(false);
+        api.setTokenURL(format("http://localhost:%d/oauth2/token", wireMockRule.port()));
+        api.setBaseURL("not_an_url");
+        mockAndAssertAuthentication(clientID, clientSecret, code);
 
-        BoxUser appUserFromAdmin = new BoxUser(appAuthConnection, appUserId);
-        appUserFromAdmin.delete(false, true);
+        api.authenticate(code);
+
+        assertThat(api.getAccessToken(), is("access-token"));
+        assertThat(api.getRefreshToken(), is("refresh-token"));
+    }
+
+    @Test
+    public void usesCorrectTokenUrlToRevokeWhenBaseUrlIsSet() {
+        String token = "fakeToken";
+        String clientID = "fakeID";
+        String clientSecret = "fakeSecret";
+
+        BoxAPIConnection api = new BoxAPIConnection(clientID, clientSecret, token, null);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
+        mockAndAssertRevoke(token, clientID, clientSecret);
+
+        api.revokeToken();
+    }
+
+    @Test
+    public void usesCorrectTokenUrlToRevokeWhenRevokeUrlIsSet() {
+        String token = "fakeToken";
+        String clientID = "fakeID";
+        String clientSecret = "fakeSecret";
+
+        BoxAPIConnection api = new BoxAPIConnection(clientID, clientSecret, token, null);
+        api.setRevokeURL(format("http://localhost:%d/oauth2/revoke", wireMockRule.port()));
+        mockAndAssertRevoke(token, clientID, clientSecret);
+
+        api.revokeToken();
+    }
+
+    @Test
+    public void usesRevokeUrlOverBaseUrlToRevoke() {
+        String token = "fakeToken";
+        String clientID = "fakeID";
+        String clientSecret = "fakeSecret";
+
+        BoxAPIConnection api = new BoxAPIConnection(clientID, clientSecret, token, null);
+        api.setRevokeURL(format("http://localhost:%d/oauth2/revoke", wireMockRule.port()));
+        api.setBaseURL("not_an_url");
+        mockAndAssertRevoke(token, clientID, clientSecret);
+
+        api.revokeToken();
+    }
+
+    private void mockAndAssertRevoke(String token, String clientID, String clientSecret) {
+        wireMockRule.stubFor(post(urlPathEqualTo("/oauth2/revoke"))
+            .withRequestBody(WireMock.equalTo(
+                format(
+                    "token=%s&client_id=%s&client_secret=%s", token, clientID, clientSecret
+                )
+            ))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(
+                    "{\"refresh_token\":\"refresh-token\", \"access_token\":\"access-token\", \"expires_in\": 1}"
+                )));
+    }
+
+    private void mockAndAssertAuthentication(String clientId, String clientSecret, String code) {
+        wireMockRule.stubFor(post(urlPathEqualTo("/oauth2/token"))
+            .withRequestBody(WireMock.equalTo(
+                format(
+                    "grant_type=authorization_code&code=%s&client_id=%s&client_secret=%s", code, clientId, clientSecret
+                )
+            ))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(
+                    "{\"refresh_token\":\"refresh-token\", \"access_token\":\"access-token\", \"expires_in\": 1}"
+                )));
+    }
+
+    private static final class AuthenticationResponse extends BoxJSONResponse {
+        private final String accessToken;
+        private final String refreshToken;
+        private final String expiresIn;
+
+        private AuthenticationResponse(String accessToken, String refreshToken, String expiresIn) {
+            this.accessToken = accessToken;
+            this.refreshToken = refreshToken;
+            this.expiresIn = expiresIn;
+        }
+
+
+        @Override
+        public String getJSON() {
+            return "{\n"
+                + "    \"access_token\": \"" + accessToken + "\",\n"
+                + "    \"refresh_token\": \"" + refreshToken + "\",\n"
+                + "    \"expires_in\": " + expiresIn + ",\n"
+                + "    \"restricted_to\": [],\n"
+                + "    \"token_type\": \"bearer\"\n"
+                + "}";
+        }
     }
 }

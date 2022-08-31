@@ -1,17 +1,16 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.text.ParseException;
-import java.util.Date;
-
+import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.Date;
 
 /**
  * Represents a legal hold policy assignment.
  * Legal hold assignments are used to assign legal hold policies to custodians, folders, files, or file versions.
  *
- * @see <a href="https://docs.box.com/reference#legal-holds-assignment-object">Box legal holds</a>
+ * @see <a href="https://developer.box.com/reference/resources/legal-hold-policy-assignment/">Box legal holds</a>
  *
  * <p>Unless otherwise noted, the methods in this class can throw an unchecked {@link BoxAPIException} (unchecked
  * meaning that the compiler won't force you to handle it) if an error occurs. If you wish to implement custom error
@@ -43,12 +42,12 @@ public class BoxLegalHoldAssignment extends BoxResource {
     /**
      * The URL template used for operation with legal hold policy assignments.
      */
-    private static final URLTemplate ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("legal_hold_policy_assignments");
+    public static final URLTemplate ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("legal_hold_policy_assignments");
 
     /**
      * The URL template used for operation with legal hold policy assignment with given ID.
      */
-    private static final URLTemplate LEGAL_HOLD_ASSIGNMENT_URL_TEMPLATE
+    public static final URLTemplate LEGAL_HOLD_ASSIGNMENT_URL_TEMPLATE
         = new URLTemplate("legal_hold_policy_assignments/%s");
 
     /**
@@ -63,10 +62,11 @@ public class BoxLegalHoldAssignment extends BoxResource {
 
     /**
      * Creates new legal hold policy assignment.
-     * @param api the API connection to be used by the resource.
-     * @param policyID ID of policy to create assignment for.
+     *
+     * @param api          the API connection to be used by the resource.
+     * @param policyID     ID of policy to create assignment for.
      * @param resourceType type of target resource. Can be 'file_version', 'file', 'folder', or 'user'.
-     * @param resourceID ID of the target resource.
+     * @param resourceID   ID of the target resource.
      * @return info about created legal hold policy assignment.
      */
     public static BoxLegalHoldAssignment.Info create(BoxAPIConnection api,
@@ -75,13 +75,13 @@ public class BoxLegalHoldAssignment extends BoxResource {
         BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
 
         JsonObject requestJSON = new JsonObject()
-                .add("policy_id", policyID)
-                .add("assign_to", new JsonObject()
-                        .add("type", resourceType)
-                        .add("id", resourceID));
+            .add("policy_id", policyID)
+            .add("assign_to", new JsonObject()
+                .add("type", resourceType)
+                .add("id", resourceID));
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         BoxLegalHoldAssignment createdAssignment = new BoxLegalHoldAssignment(api, responseJSON.get("id").asString());
         return createdAssignment.new Info(responseJSON);
     }
@@ -100,16 +100,16 @@ public class BoxLegalHoldAssignment extends BoxResource {
      * @param fields the fields to retrieve.
      * @return information about this retention policy.
      */
-    public BoxLegalHoldAssignment.Info getInfo(String ... fields) {
+    public BoxLegalHoldAssignment.Info getInfo(String... fields) {
         QueryStringBuilder builder = new QueryStringBuilder();
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
         }
         URL url = LEGAL_HOLD_ASSIGNMENT_URL_TEMPLATE.buildWithQuery(
-                this.getAPI().getBaseURL(), builder.toString(), this.getID());
+            this.getAPI().getBaseURL(), builder.toString(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         return new Info(responseJSON);
     }
 
@@ -157,7 +157,8 @@ public class BoxLegalHoldAssignment extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -165,7 +166,8 @@ public class BoxLegalHoldAssignment extends BoxResource {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -257,8 +259,8 @@ public class BoxLegalHoldAssignment extends BoxResource {
                 } else if (memberName.equals("deleted_at")) {
                     this.deletedAt = BoxDateFormat.parse(value.asString());
                 }
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
         }
     }

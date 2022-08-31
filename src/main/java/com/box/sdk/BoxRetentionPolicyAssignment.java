@@ -1,11 +1,13 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.text.ParseException;
-import java.util.Date;
-
+import com.eclipsesource.json.Json;
+import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 
 /**
  * Represents a retention policy assignment.
@@ -28,15 +30,34 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
     public static final String TYPE_ENTERPRISE = "enterprise";
 
     /**
+     * Type for metadata policy assignment.
+     */
+    public static final String TYPE_METADATA = "metadata_template";
+
+    /**
      * The URL template used for operation with retention policy assignments.
      */
-    private static final URLTemplate ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("retention_policy_assignments");
+    public static final URLTemplate ASSIGNMENTS_URL_TEMPLATE = new URLTemplate("retention_policy_assignments");
 
     /**
      * The URL template used for operation with retention policy assignment with given ID.
      */
-    private static final URLTemplate RETENTION_POLICY_ASSIGNMENT_URL_TEMPLATE
+    public static final URLTemplate RETENTION_POLICY_ASSIGNMENT_URL_TEMPLATE
         = new URLTemplate("retention_policy_assignments/%s");
+
+    /**
+     * The URL template used for operation with files under retention with given retention policy assignment ID.
+     */
+    public static final URLTemplate FILES_UNDER_RETENTION_URL_TEMPLATE
+        = new URLTemplate("retention_policy_assignments/%s/files_under_retention");
+
+    /**
+     * The URL template used for operation with file versions under retention with given retention policy assignment ID.
+     */
+    public static final URLTemplate FILE_VERSIONS_UNDER_RETENTION_URL_TEMPLATE
+        = new URLTemplate("retention_policy_assignments/%s/file_versions_under_retention");
+
+    private static final int DEFAULT_LIMIT = 100;
 
     /**
      * Constructs a BoxResource for a resource with a given ID.
@@ -50,45 +71,103 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
 
     /**
      * Assigns retention policy with givenID to the enterprise.
-     * @param api the API connection to be used by the created assignment.
+     *
+     * @param api      the API connection to be used by the created assignment.
      * @param policyID id of the assigned retention policy.
      * @return info about created assignment.
      */
     public static BoxRetentionPolicyAssignment.Info createAssignmentToEnterprise(BoxAPIConnection api,
                                                                                  String policyID) {
-        return createAssignment(api, policyID, new JsonObject().add("type", TYPE_ENTERPRISE));
+        return createAssignment(api, policyID, new JsonObject().add("type", TYPE_ENTERPRISE), null, null);
     }
 
     /**
      * Assigns retention policy with givenID to the folder.
-     * @param api the API connection to be used by the created assignment.
+     *
+     * @param api      the API connection to be used by the created assignment.
      * @param policyID id of the assigned retention policy.
      * @param folderID id of the folder to assign policy to.
      * @return info about created assignment.
      */
     public static BoxRetentionPolicyAssignment.Info createAssignmentToFolder(BoxAPIConnection api, String policyID,
                                                                              String folderID) {
-        return createAssignment(api, policyID, new JsonObject().add("type", TYPE_FOLDER).add("id", folderID));
+        return createAssignment(
+                api, policyID, new JsonObject().add("type", TYPE_FOLDER).add("id", folderID), null, null);
+    }
+
+    /**
+     * Assigns a retention policy to all items with a given metadata template, optionally matching on fields.
+     *
+     * @param api        the API connection to be used by the created assignment.
+     * @param policyID   id of the assigned retention policy.
+     * @param templateID the ID of the metadata template to assign the policy to.
+     * @param filter     optional fields to match against in the metadata template.
+     * @return info about the created assignment.
+     */
+    public static BoxRetentionPolicyAssignment.Info createAssignmentToMetadata(BoxAPIConnection api,
+                                                                               String policyID,
+                                                                               String templateID,
+                                                                               MetadataFieldFilter... filter) {
+        return createAssignmentToMetadata(api, policyID, templateID, null, filter);
+    }
+
+    /**
+     * Assigns a retention policy to all items with a given metadata template, optionally matching on fields.
+     *
+     * @param api        the API connection to be used by the created assignment.
+     * @param policyID   id of the assigned retention policy.
+     * @param templateID the ID of the metadata template to assign the policy to.
+     * @param startDateField  The date the retention policy assignment begins. This field can be a date field's metadata attribute key id.
+     * @param filter     optional fields to match against in the metadata template.
+     * @return info about the created assignment.
+     */
+    public static BoxRetentionPolicyAssignment.Info createAssignmentToMetadata(BoxAPIConnection api,
+                                                                               String policyID,
+                                                                               String templateID,
+                                                                               String startDateField,
+                                                                               MetadataFieldFilter... filter) {
+        JsonObject assignTo = new JsonObject().add("type", TYPE_METADATA).add("id", templateID);
+        JsonArray filters = null;
+        if (filter.length > 0) {
+            filters = new JsonArray();
+            for (MetadataFieldFilter f : filter) {
+                filters.add(f.getJsonObject());
+            }
+        }
+        return createAssignment(api, policyID, assignTo, startDateField, filters);
     }
 
     /**
      * Assigns retention policy with givenID to folder or enterprise.
-     * @param api the API connection to be used by the created assignment.
+     *
+     * @param api      the API connection to be used by the created assignment.
      * @param policyID id of the assigned retention policy.
      * @param assignTo object representing folder or enterprise to assign policy to.
+     * @param filter Filters
      * @return info about created assignment.
      */
-    private static BoxRetentionPolicyAssignment.Info createAssignment(BoxAPIConnection api, String policyID,
-                                                                      JsonObject assignTo) {
+    private static BoxRetentionPolicyAssignment.Info createAssignment(BoxAPIConnection api,
+                                                                      String policyID,
+                                                                      JsonObject assignTo,
+                                                                      String startDateField,
+                                                                      JsonArray filter) {
         URL url = ASSIGNMENTS_URL_TEMPLATE.build(api.getBaseURL());
         BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
 
         JsonObject requestJSON = new JsonObject()
-                .add("policy_id", policyID)
-                .add("assign_to", assignTo);
+            .add("policy_id", policyID)
+            .add("assign_to", assignTo);
+
+        if (filter != null) {
+            requestJSON.add("filter_fields", filter);
+        }
+        if (startDateField != null) {
+            requestJSON.add("start_date_field", startDateField);
+        }
+
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         BoxRetentionPolicyAssignment createdAssignment
             = new BoxRetentionPolicyAssignment(api, responseJSON.get("id").asString());
         return createdAssignment.new Info(responseJSON);
@@ -98,17 +177,83 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
      * @param fields the fields to retrieve.
      * @return information about this retention policy assignment.
      */
-    public BoxRetentionPolicyAssignment.Info getInfo(String ... fields) {
+    public BoxRetentionPolicyAssignment.Info getInfo(String... fields) {
         QueryStringBuilder builder = new QueryStringBuilder();
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
         }
         URL url = RETENTION_POLICY_ASSIGNMENT_URL_TEMPLATE.buildWithQuery(
-                this.getAPI().getBaseURL(), builder.toString(), this.getID());
+            this.getAPI().getBaseURL(), builder.toString(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        JsonObject responseJSON = Json.parse(response.getJSON()).asObject();
         return new Info(responseJSON);
+    }
+
+    /**
+     * Retrieves all files under retention for assignment as Iterable. Default limit is 100
+     *
+     * @param fields the fields to retrieve.
+     * @return an iterable contains information about all files under retentions as Iterable.
+     */
+    public Iterable<BoxFile.Info> getFilesUnderRetention(String... fields) {
+        return this.getFilesUnderRetention(DEFAULT_LIMIT, fields);
+    }
+
+    /**
+     * Retrieves all files under retention for assignment as Iterable.
+     *
+     * @param limit  the limit of retrieved entries per page.
+     * @param fields the fields to retrieve.
+     * @return an iterable contains information about all files under retentions as Iterable.
+     */
+    public Iterable<BoxFile.Info> getFilesUnderRetention(int limit, String... fields) {
+        QueryStringBuilder queryString = new QueryStringBuilder();
+        if (fields.length > 0) {
+            queryString.appendParam("fields", fields);
+        }
+        URL url = FILES_UNDER_RETENTION_URL_TEMPLATE.buildWithQuery(getAPI().getBaseURL(),
+            queryString.toString(), getID());
+        return new BoxResourceIterable<BoxFile.Info>(getAPI(), url, limit) {
+            @Override
+            protected BoxFile.Info factory(JsonObject jsonObject) {
+                BoxFile boxFile = new BoxFile(getAPI(), jsonObject.get("id").asString());
+                return boxFile.new Info(jsonObject);
+            }
+        };
+    }
+
+    /**
+     * Retrieves all file version under retention for assignment as Iterable. Default limit is 100.
+     *
+     * @param fields the fields to retrieve.
+     * @return an iterable contains information about all file versions under retentions as Iterable.
+     */
+    public Iterable<BoxFile.Info> getFileVersionsUnderRetention(String... fields) {
+        return this.getFileVersionsUnderRetention(DEFAULT_LIMIT, fields);
+    }
+
+    /**
+     * Retrieves all file version under retention for assignment as Iterable.
+     *
+     * @param limit  the limit of retrieved entries per page.
+     * @param fields the fields to retrieve.
+     * @return an iterable contains information about all file versions under retentions as Iterable.
+     */
+    public Iterable<BoxFile.Info> getFileVersionsUnderRetention(int limit, String... fields) {
+        QueryStringBuilder queryString = new QueryStringBuilder();
+        if (fields.length > 0) {
+            queryString.appendParam("fields", fields);
+        }
+        URL url = FILE_VERSIONS_UNDER_RETENTION_URL_TEMPLATE.buildWithQuery(getAPI().getBaseURL(),
+            queryString.toString(), getID());
+        return new BoxResourceIterable<BoxFile.Info>(getAPI(), url, limit) {
+            @Override
+            protected BoxFile.Info factory(JsonObject jsonObject) {
+                BoxFile boxFile = new BoxFile(getAPI(), jsonObject.get("id").asString());
+                return boxFile.new Info(jsonObject);
+            }
+        };
     }
 
     /**
@@ -142,6 +287,13 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
         private String assignedToID;
 
         /**
+         * @see #getStartDateField()
+         */
+        private String startDateField;
+
+        private List<MetadataFieldFilter> filterFields;
+
+        /**
          * Constructs an empty Info object.
          */
         public Info() {
@@ -150,7 +302,8 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -158,7 +311,8 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
@@ -208,6 +362,21 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
         }
 
         /**
+         * @return date the retention policy assignment begins
+         */
+        public String getStartDateField() {
+            return this.startDateField;
+        }
+
+        /**
+         * @return the array of metadata field filters, if present
+         */
+        public List<MetadataFieldFilter> getFilterFields() {
+
+            return this.filterFields;
+        }
+
+        /**
          * {@inheritDoc}
          */
         @Override
@@ -228,10 +397,10 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
                 } else if (memberName.equals("assigned_to")) {
                     JsonObject assignmentJSON = value.asObject();
                     this.assignedToType = assignmentJSON.get("type").asString();
-                    if (this.assignedToType.equals(TYPE_FOLDER)) {
-                        this.assignedToID = assignmentJSON.get("id").asString();
-                    } else {
+                    if (this.assignedToType.equals(TYPE_ENTERPRISE)) {
                         this.assignedToID = null;
+                    } else {
+                        this.assignedToID = assignmentJSON.get("id").asString();
                     }
                 } else if (memberName.equals("assigned_by")) {
                     JsonObject userJSON = value.asObject();
@@ -244,9 +413,18 @@ public class BoxRetentionPolicyAssignment extends BoxResource {
                     }
                 } else if (memberName.equals("assigned_at")) {
                     this.assignedAt = BoxDateFormat.parse(value.asString());
+                } else if (memberName.equals("start_date_field")) {
+                    this.startDateField = value.asString();
+                } else if (memberName.equals("filter_fields")) {
+                    JsonArray jsonFilters = value.asArray();
+                    List<MetadataFieldFilter> filterFields = new ArrayList<>();
+                    for (int i = 0; i < jsonFilters.size(); i++) {
+                        filterFields.add(new MetadataFieldFilter(jsonFilters.get(i).asObject()));
+                    }
+                    this.filterFields = filterFields;
                 }
-            } catch (ParseException e) {
-                assert false : "A ParseException indicates a bug in the SDK.";
+            } catch (Exception e) {
+                throw new BoxDeserializationException(memberName, value.toString(), e);
             }
         }
     }

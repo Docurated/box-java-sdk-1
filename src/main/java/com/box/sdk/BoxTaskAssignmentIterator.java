@@ -1,9 +1,10 @@
 package com.box.sdk;
 
-import java.net.URL;
-import java.util.Iterator;
+import static com.box.sdk.PagingParameters.offset;
 
 import com.eclipsesource.json.JsonObject;
+import java.net.URL;
+import java.util.Iterator;
 
 
 /**
@@ -25,16 +26,17 @@ class BoxTaskAssignmentIterator implements Iterator<BoxTaskAssignment.Info> {
     /**
      * Iterator object with paging support.
      */
-    private final JSONIterator jsonIterator;
+    private final JsonIterator jsonIterator;
 
     /**
      * Creates new BoxTaskAssignment iterator.
+     *
      * @param api The API connection to be used by the iterator.
      * @param url The endpoint url.
      */
     BoxTaskAssignmentIterator(BoxAPIConnection api, URL url) {
         this.api = api;
-        this.jsonIterator = new JSONIterator(api, url, LIMIT);
+        this.jsonIterator = new JsonIterator(api, url, offset(0, LIMIT));
     }
 
     /**

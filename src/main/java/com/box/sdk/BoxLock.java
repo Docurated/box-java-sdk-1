@@ -1,10 +1,8 @@
 package com.box.sdk;
 
-import java.text.ParseException;
-import java.util.Date;
-
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.util.Date;
 
 /**
  * Represents a lock associated with a File on Box.
@@ -20,7 +18,8 @@ public class BoxLock extends BoxJSONObject {
 
     /**
      * Constructs a base BoxLock object.
-     * @param type lock type, "lock" or "unlock".
+     *
+     * @param type      lock type, "lock" or "unlock".
      * @param expiresAt lock expiration date.
      */
     public BoxLock(String type, Date expiresAt) {
@@ -32,8 +31,9 @@ public class BoxLock extends BoxJSONObject {
 
     /**
      * Constructs a BoxLock object.
-     * @param type lock type, "lock" or "unlock".
-     * @param expiresAt lock expiration date.
+     *
+     * @param type                lock type, "lock" or "unlock".
+     * @param expiresAt           lock expiration date.
      * @param isDownloadPrevented if true, download is prevented while locked.
      */
     public BoxLock(String type, Date expiresAt, Boolean isDownloadPrevented) {
@@ -45,7 +45,9 @@ public class BoxLock extends BoxJSONObject {
 
     /**
      * Constructs an BoxLock object using an already parsed JSON object.
-     * @param  jsonObject the parsed JSON object.
+     *
+     * @param jsonObject the parsed JSON object.
+     * @param api API object.
      */
     BoxLock(JsonObject jsonObject, BoxAPIConnection api) {
         super(jsonObject);
@@ -54,6 +56,7 @@ public class BoxLock extends BoxJSONObject {
 
     /**
      * Gets the lock type.
+     *
      * @return the type of a lock.
      */
     public String getType() {
@@ -62,6 +65,7 @@ public class BoxLock extends BoxJSONObject {
 
     /**
      * Gets a locks expiration date.
+     *
      * @return the locks expiration date.
      */
     public Date getExpiresAt() {
@@ -70,6 +74,7 @@ public class BoxLock extends BoxJSONObject {
 
     /**
      * Does the lock prevent downloads.
+     *
      * @return true if lock prevents downloads.
      */
     public Boolean getIsDownloadPrevented() {
@@ -78,6 +83,7 @@ public class BoxLock extends BoxJSONObject {
 
     /**
      * User who created the lock.
+     *
      * @return Lock creator.
      */
     public BoxUser.Info getCreatedBy() {
@@ -126,8 +132,8 @@ public class BoxLock extends BoxJSONObject {
             } else if (memberName.equals("id")) {
                 this.id = value.toString();
             }
-        } catch (ParseException e) {
-            assert false : "A ParseException indicates a bug in the SDK.";
+        } catch (Exception e) {
+            throw new BoxDeserializationException(memberName, value.toString(), e);
         }
     }
 }

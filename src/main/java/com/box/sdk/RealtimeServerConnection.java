@@ -1,26 +1,25 @@
 package com.box.sdk;
 
+import com.eclipsesource.json.Json;
+import com.eclipsesource.json.JsonArray;
+import com.eclipsesource.json.JsonObject;
 import java.net.MalformedURLException;
 import java.net.URL;
 
-import com.eclipsesource.json.JsonArray;
-import com.eclipsesource.json.JsonObject;
-
 class RealtimeServerConnection {
-    private static final URLTemplate EVENT_URL = new URLTemplate("events");
-    private static final URLTemplate EVENT_POSITION_URL = new URLTemplate("events?stream_position=%s");
+    public static final URLTemplate EVENT_URL = new URLTemplate("events");
+    public static final URLTemplate EVENT_POSITION_URL = new URLTemplate("events?stream_position=%s");
 
     private final BoxAPIConnection api;
     private final int timeout;
     private final String serverURLString;
 
     private int retries;
-    private BoxJSONResponse response;
 
     RealtimeServerConnection(BoxAPIConnection api) {
         BoxAPIRequest request = new BoxAPIRequest(api, EVENT_URL.build(api.getBaseURL()), "OPTIONS");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
+        JsonObject jsonObject = Json.parse(response.getJSON()).asObject();
         JsonArray entries = jsonObject.get("entries").asArray();
         JsonObject firstEntry = entries.get(0).asObject();
         this.serverURLString = firstEntry.get("url").asString();
@@ -50,9 +49,10 @@ class RealtimeServerConnection {
             this.retries--;
             try {
                 BoxAPIRequest request = new BoxAPIRequest(this.api, url, "GET");
-                request.setTimeout(this.timeout * 1000);
-                this.response = (BoxJSONResponse) request.send();
-                JsonObject jsonObject = JsonObject.readFrom(this.response.getJSON());
+                request.setConnectTimeout(this.timeout * 1000);
+                request.setReadTimeout(this.timeout * 1000);
+                BoxJSONResponse response = (BoxJSONResponse) request.send();
+                JsonObject jsonObject = Json.parse(response.getJSON()).asObject();
                 String message = jsonObject.get("message").asString();
                 if (message.equals("new_change")) {
                     return true;

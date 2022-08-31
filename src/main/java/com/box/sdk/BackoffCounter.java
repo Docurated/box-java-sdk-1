@@ -1,23 +1,20 @@
 package com.box.sdk;
 
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 class BackoffCounter {
-    private static final Logger LOGGER = Logger.getLogger(BackoffCounter.class.getName());
-    private static final int MIN_EXPONENT = 10;
-    private static final int MAX_EXPONENT = 16;
+    private static final BoxLogger LOGGER = BoxLogger.defaultLogger();
+    private static final int BASE_TIMEOUT = 1000;
+    private static final double RANDOM_FACTOR = 0.5;
 
     private final Time time;
 
     private int maxAttempts;
     private int attemptsRemaining;
 
-    public BackoffCounter() {
-        this.time = Time.getInstance();
+    BackoffCounter() {
+        this(Time.getInstance());
     }
 
-    public BackoffCounter(Time time) {
+    BackoffCounter(Time time) {
         this.time = time;
     }
 
@@ -27,14 +24,19 @@ class BackoffCounter {
 
     public void waitBackoff() throws InterruptedException {
         int delay = this.calculateDelay();
-        if (this.attemptsRemaining > 1) {
-            LOGGER.log(Level.WARNING, String.format("Backing off for %d seconds before retrying %d more times.",
-                (delay / 1000), this.attemptsRemaining));
-        } else {
-            LOGGER.log(Level.WARNING, String.format("Backing off for %d seconds before retrying %d more time.",
-                (delay / 1000), this.attemptsRemaining));
-        }
+        this.waitBackoff(delay);
+    }
 
+    public void waitBackoff(int delay) throws InterruptedException {
+        if (LOGGER.isWarnEnabled()) {
+            LOGGER.warn(String.format(
+                "Backing off for %d seconds before retrying %d more time%s.",
+                (delay / 1000),
+                this.attemptsRemaining,
+                this.attemptsRemaining > 1 ? "s" : ""
+            ));
+
+        }
         this.time.waitDuration(delay);
     }
 
@@ -49,11 +51,11 @@ class BackoffCounter {
     }
 
     private int calculateDelay() {
-        int exponent = (MIN_EXPONENT + (this.maxAttempts - (this.attemptsRemaining + 1)));
-        if (exponent > MAX_EXPONENT) {
-            exponent = MAX_EXPONENT;
-        }
+        int exponent = this.maxAttempts - this.attemptsRemaining;
+        double minWindow = 1 - RANDOM_FACTOR;
+        double maxWindow = 1 + RANDOM_FACTOR;
+        double jitter = (Math.random() * (maxWindow - minWindow)) + minWindow;
 
-        return (2 << exponent);
+        return (int) (Math.pow(2, exponent) * BASE_TIMEOUT * jitter);
     }
 }

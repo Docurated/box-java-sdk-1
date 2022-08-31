@@ -1,8 +1,20 @@
 package com.box.sdk.example;
 
+import com.box.sdk.BoxConfig;
+import com.box.sdk.BoxDeveloperEditionAPIConnection;
+import com.box.sdk.BoxItem;
+import com.box.sdk.BoxMetadataFilter;
+import com.box.sdk.BoxSearch;
+import com.box.sdk.BoxSearchParameters;
+import com.box.sdk.BoxUser;
+import com.box.sdk.DateRange;
+import com.box.sdk.IAccessTokenCache;
+import com.box.sdk.InMemoryLRUAccessTokenCache;
+import com.box.sdk.PartialCollection;
+import com.box.sdk.SizeRange;
+import java.io.FileReader;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.io.Reader;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -11,54 +23,29 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import com.box.sdk.BoxDeveloperEditionAPIConnection;
-import com.box.sdk.BoxItem;
-import com.box.sdk.BoxMetadataFilter;
-import com.box.sdk.BoxSearch;
-import com.box.sdk.BoxSearchParameters;
-import com.box.sdk.BoxUser;
-import com.box.sdk.DateRange;
-import com.box.sdk.EncryptionAlgorithm;
-import com.box.sdk.IAccessTokenCache;
-import com.box.sdk.InMemoryLRUAccessTokenCache;
-import com.box.sdk.JWTEncryptionPreferences;
-import com.box.sdk.PartialCollection;
-import com.box.sdk.SizeRange;
-
 public final class SearchExamplesAsAppUser {
 
-    private static final String CLIENT_ID = "";
-    private static final String CLIENT_SECRET = "";
     private static final String USER_ID = "";
-    private static final String PUBLIC_KEY_ID = "";
-    private static final String PRIVATE_KEY_FILE = "";
-    private static final String PRIVATE_KEY_PASSWORD = "";
-    private static final int MAX_DEPTH = 1;
     private static final int MAX_CACHE_ENTRIES = 100;
 
     private static BoxDeveloperEditionAPIConnection api;
 
-    private SearchExamplesAsAppUser() { }
+    private SearchExamplesAsAppUser() {
+    }
 
     public static void main(String[] args) throws IOException {
-        // Turn off logging to prevent polluting the output.
-        Logger.getLogger("com.box.sdk").setLevel(Level.SEVERE);
-
-        String privateKey = new String(Files.readAllBytes(Paths.get(PRIVATE_KEY_FILE)));
-
-        JWTEncryptionPreferences encryptionPref = new JWTEncryptionPreferences();
-        encryptionPref.setPublicKeyID(PUBLIC_KEY_ID);
-        encryptionPref.setPrivateKey(privateKey);
-        encryptionPref.setPrivateKeyPassword(PRIVATE_KEY_PASSWORD);
-        encryptionPref.setEncryptionAlgorithm(EncryptionAlgorithm.RSA_SHA_256);
+        // Limit logging messages to prevent polluting the output.
+        Logger.getLogger("com.box.sdk").setLevel(Level.WARNING);
 
         //It is a best practice to use an access token cache to prevent unneeded requests to Box for access tokens.
         //For production applications it is recommended to use a distributed cache like Memcached or Redis, and to
         //implement IAccessTokenCache to store and retrieve access tokens appropriately for your environment.
         IAccessTokenCache accessTokenCache = new InMemoryLRUAccessTokenCache(MAX_CACHE_ENTRIES);
 
-        api = BoxDeveloperEditionAPIConnection.getAppUserConnection(USER_ID, CLIENT_ID,
-                CLIENT_SECRET, encryptionPref, accessTokenCache);
+        Reader reader = new FileReader("src/example/config/config.json");
+        BoxConfig boxConfig = BoxConfig.readFrom(reader);
+
+        api = BoxDeveloperEditionAPIConnection.getUserConnection(USER_ID, boxConfig, accessTokenCache);
 
         BoxUser.Info userInfo = BoxUser.getCurrentUser(api).getInfo();
         System.out.format("Welcome, %s!\n\n", userInfo.getName());
@@ -90,8 +77,7 @@ public final class SearchExamplesAsAppUser {
 
     }
 
-    public static void crawlSearchResultExample(BoxSearchParameters bsp, BoxSearch bs)
-    {
+    public static void crawlSearchResultExample(BoxSearchParameters bsp, BoxSearch bs) {
         /**
          * Example of how to crawl more than 1000+ results in a search query
          */
@@ -117,15 +103,15 @@ public final class SearchExamplesAsAppUser {
             offset += limit;
         }
     }
-    public static void fileExtensionExample(BoxSearchParameters bsp, BoxSearch bs)
-    {
+
+    public static void fileExtensionExample(BoxSearchParameters bsp, BoxSearch bs) {
 
         print("******File Extension Search******");
-        List<String> fileExtensions = new ArrayList<String>();
+        List<String> fileExtensions = new ArrayList<>();
         fileExtensions.add("png");
         fileExtensions.add("docx");
 
-        List<String> ancestorFolderIds = new ArrayList<String>();
+        List<String> ancestorFolderIds = new ArrayList<>();
         ancestorFolderIds.add("6725599265");
 
         bsp.setFileExtensions(fileExtensions);
@@ -138,7 +124,7 @@ public final class SearchExamplesAsAppUser {
     public static void ownerIdFilterExample(BoxSearchParameters bsp, BoxSearch bs) {
 
         print("******Owner Id's Filter Search******");
-        List<String> ownerUserIds = new ArrayList<String>();
+        List<String> ownerUserIds = new ArrayList<>();
         ownerUserIds.add("268117237");
 
         bsp.clearParameters();
@@ -149,10 +135,9 @@ public final class SearchExamplesAsAppUser {
 
     }
 
-    public static void contentTypeFilterExample(BoxSearchParameters bsp, BoxSearch bs)
-    {
+    public static void contentTypeFilterExample(BoxSearchParameters bsp, BoxSearch bs) {
         print("*****Description Search******");
-        List<String> contentTypes = new ArrayList<String>();
+        List<String> contentTypes = new ArrayList<>();
         contentTypes.add("description");
 
         bsp.clearParameters();
@@ -162,8 +147,7 @@ public final class SearchExamplesAsAppUser {
         crawlSearchResultExample(bsp, bs);
     }
 
-    public static void createdDateFilterExample(BoxSearchParameters bsp, BoxSearch bs)
-    {
+    public static void createdDateFilterExample(BoxSearchParameters bsp, BoxSearch bs) {
         print("*****Created Date Range Search******");
         bsp.clearParameters();
         try {
@@ -187,8 +171,7 @@ public final class SearchExamplesAsAppUser {
         }
     }
 
-    public static void updatedDateFilterExample(BoxSearchParameters bsp, BoxSearch bs)
-    {
+    public static void updatedDateFilterExample(BoxSearchParameters bsp, BoxSearch bs) {
         print("*****Updated Date Range Search******");
         bsp.clearParameters();
         try {
@@ -269,8 +252,6 @@ public final class SearchExamplesAsAppUser {
             bsp.clearParameters();
 
             BoxMetadataFilter bmf = new BoxMetadataFilter();
-
-            bmf = new BoxMetadataFilter();
             bmf.setScope("enterprise");
             bmf.setTemplateKey("test");
 
@@ -300,9 +281,6 @@ public final class SearchExamplesAsAppUser {
             bsp.clearParameters();
 
             BoxMetadataFilter bmf = new BoxMetadataFilter();
-            bsp.clearParameters();
-
-            bmf = new BoxMetadataFilter();
             bmf.setScope("enterprise");
             bmf.setTemplateKey("test");
 
@@ -363,11 +341,12 @@ public final class SearchExamplesAsAppUser {
             System.out.println("File Found: " + itemInfo.getName() + ", Owner: " + itemInfo.getOwnedBy().getID());
         }
 
-        System.out.println("");
+        System.out.println();
     }
 
     /**
-     *     Used for a simple print function, leverages System.out.println.
+     * Used for a simple print function, leverages System.out.println.
+     *
      * @param s string to be used as a print.
      */
     private static void print(String s) {

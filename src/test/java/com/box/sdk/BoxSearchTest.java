@@ -1,40 +1,45 @@
 package com.box.sdk;
 
-import static java.net.URLEncoder.encode;
-import java.io.UnsupportedEncodingException;
-
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.experimental.categories.Category;
-
-import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.io.IOException;
+import java.util.Iterator;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class BoxSearchTest {
     @Rule
-    public final WireMockRule wireMockRule = new WireMockRule(8080);
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+    private final BoxAPIConnection api = new BoxAPIConnection("");
+
+    @Before
+    public void setUpBaseUrl() {
+        api.setMaxRetryAttempts(1);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
+    }
 
     @Test
-    @Category(UnitTest.class)
     public void searchWithQueryRequestsCorrectFields() {
         String query = "A query";
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setBaseURL("http://localhost:8080/");
 
-        try {
-            stubFor(get(urlPathEqualTo("/search"))
-                    .withQueryParam("query", WireMock.equalTo(encode(query, "UTF-8")))
-                    .withQueryParam("limit", WireMock.equalTo("10"))
-                    .withQueryParam("offset", WireMock.equalTo("10"))
-                    .willReturn(aResponse()
-                            .withHeader("Content-Type", "application/json")
-                            .withBody("{\"total_count\": 1, \"offset\": 10, \"limit\": 10, \"entries\":"
-                                    + "[{\"type\": \"file\", \"id\": \"0\"}]}")));
-        } catch (UnsupportedEncodingException e) { /* no op */ }
+        stubFor(get(urlPathEqualTo("/2.0/search"))
+            .withQueryParam("query", WireMock.equalTo(query))
+            .withQueryParam("limit", WireMock.equalTo("10"))
+            .withQueryParam("offset", WireMock.equalTo("10"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"total_count\": 1, \"offset\": 10, \"limit\": 10, \"entries\":"
+                    + "[{\"type\": \"file\", \"id\": \"0\"}]}")));
 
         BoxSearch boxSearch = new BoxSearch(api);
         BoxSearchParameters searchParams = new BoxSearchParameters();
@@ -47,24 +52,20 @@ public class BoxSearchTest {
     }
 
     @Test
-    @Category(UnitTest.class)
     public void searchWithMetadataRequestsCorrectFiltersAndFields() {
-        final String filters = "%5B%7B%22templateKey%22%3A%22test%22%2C%22scope%22%3A%22enterprise%22%2C%22"
-                + "filters%22%3A%7B%22number%22%3A%7B%22gt%22%3A12%2C%22lt%22%3A19%7D%2C%22test%22%3A%22"
-                + "example%22%7D%7D%5D";
 
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setBaseURL("http://localhost:8080/");
+        final String filters = "[{\"templateKey\":\"test\",\"scope\":\"enterprise\","
+            + "\"filters\":{\"number\":{\"gt\":12,\"lt\":19},\"test\":\"example\"}}]";
 
-        stubFor(get(urlPathEqualTo("/search"))
-                .withQueryParam("type", WireMock.equalTo("file"))
-                .withQueryParam("mdfilters", WireMock.equalTo(filters))
-                .withQueryParam("limit", WireMock.equalTo("10"))
-                .withQueryParam("offset", WireMock.equalTo("10"))
-                .willReturn(aResponse()
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("{\"total_count\": 1, \"offset\": 10, \"limit\": 10, \"entries\":"
-                                + "[{\"type\": \"file\", \"id\": \"0\"}]}")));
+        stubFor(get(urlPathEqualTo("/2.0/search"))
+            .withQueryParam("type", WireMock.equalTo("file"))
+            .withQueryParam("mdfilters", WireMock.equalTo(filters))
+            .withQueryParam("limit", WireMock.equalTo("10"))
+            .withQueryParam("offset", WireMock.equalTo("10"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"total_count\": 1, \"offset\": 10, \"limit\": 10, \"entries\":"
+                    + "[{\"type\": \"file\", \"id\": \"0\"}]}")));
 
         BoxSearch boxSearch = new BoxSearch(api);
         BoxSearchParameters searchParams = new BoxSearchParameters();
@@ -81,5 +82,39 @@ public class BoxSearchTest {
         PartialCollection<BoxItem.Info> searchResults = boxSearch.searchRange(10, 10, searchParams);
 
         assertThat(searchResults.size(), is(1));
+    }
+
+    @Test
+    public void searchIncludeSharedLinksRequestsCorrectFields() throws IOException {
+        String query = "A query";
+
+        String result = TestUtils.getFixture("BoxSearch/GetSearchItemsIncludingSharedLinks200");
+
+        stubFor(get(urlPathEqualTo("/2.0/search"))
+            .withQueryParam("query", WireMock.equalTo(query))
+            .withQueryParam("include_recent_shared_links", WireMock.equalTo("true"))
+            .withQueryParam("limit", WireMock.equalTo("10"))
+            .withQueryParam("offset", WireMock.equalTo("10"))
+            .willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxSearch boxSearch = new BoxSearch(api);
+        BoxSearchParameters searchParams = new BoxSearchParameters();
+
+        searchParams.setQuery(query);
+
+        PartialCollection<BoxSearchSharedLink> searchResults = boxSearch.searchRangeIncludeSharedLinks(10,
+            10, searchParams);
+        Iterator<BoxSearchSharedLink> searchResultsIterator = searchResults.iterator();
+        BoxSearchSharedLink searchItem = searchResultsIterator.next();
+
+        assertThat(searchResults.size(), is(1));
+        assertThat(searchItem.getType(), is("search_result"));
+        assertThat(searchItem.getItem().getID(), is("12345"));
+        assertThat(searchItem.getItem().getSharedLink().getURL(),
+            is("https://www.box.com/s/vspke7y05sb214wjokpk"));
+        assertThat(searchItem.getAccessibleViaSharedLink().toString(),
+            is("https://www.box.com/s/vspke7y05sb214wjokpk"));
     }
 }

@@ -1,10 +1,8 @@
 package com.box.sdk;
 
-import java.text.ParseException;
-import java.util.Date;
-
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
+import java.util.Date;
 
 /**
  * Represents a link to a file or folder on Box.
@@ -13,7 +11,9 @@ public class BoxSharedLink extends BoxJSONObject {
     private String url;
     private String downloadUrl;
     private String vanityUrl;
+    private String vanityName;
     private boolean isPasswordEnabled;
+    private String password;
     private Date unsharedAt;
     private long downloadCount;
     private long previewCount;
@@ -24,11 +24,13 @@ public class BoxSharedLink extends BoxJSONObject {
     /**
      * Constructs a BoxSharedLink with default settings.
      */
-    public BoxSharedLink() { }
+    public BoxSharedLink() {
+    }
 
     /**
      * Constructs a BoxSharedLink from a JSON string.
-     * @param  json the JSON encoded shared link.
+     *
+     * @param json the JSON encoded shared link.
      */
     public BoxSharedLink(String json) {
         super(json);
@@ -47,8 +49,20 @@ public class BoxSharedLink extends BoxJSONObject {
         }
     }
 
+    BoxSharedLink(BoxSharedLink.Access access, Date unshareDate, BoxSharedLink.Permissions permissions,
+                  String password) {
+        this.setAccess(access);
+        this.setPermissions(permissions);
+        this.setPassword(password);
+
+        if (unshareDate != null) {
+            this.setUnsharedDate(unshareDate);
+        }
+    }
+
     /**
      * Get the URL of this shared link.
+     *
      * @return the URL of this shared link.
      */
     public String getURL() {
@@ -57,6 +71,7 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Gets the direct download URL of this shared link.
+     *
      * @return the direct download URL of this shared link.
      */
     public String getDownloadURL() {
@@ -65,6 +80,7 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Gets the vanity URL of this shared link.
+     *
      * @return the vanity URL of this shared link.
      */
     public String getVanityURL() {
@@ -72,7 +88,36 @@ public class BoxSharedLink extends BoxJSONObject {
     }
 
     /**
+     * Returns vanity name used to create vanity URL.
+     *
+     * @return Vanity name
+     */
+    public String getVanityName() {
+        return vanityName;
+    }
+
+    /**
+     * Sets vanity name used to create vanity URL.
+     * For example:
+     * vanityName = myCustomName
+     * will produce vanityUrl as:
+     * https://app.box.com/v/myCustomName
+     * Custom URLs should not be used when sharing sensitive content
+     * as vanity URLs are a lot easier to guess than regular shared links.
+     *
+     * @param vanityName Vanity name. Vanity name must be at least 12 characters long.
+     */
+    public void setVanityName(String vanityName) {
+        if (vanityName != null && vanityName.length() < 12) {
+            throw new IllegalArgumentException("The vanityName has to be at least 12 characters long.");
+        }
+        this.vanityName = vanityName;
+        this.addPendingChange("vanity_name", vanityName);
+    }
+
+    /**
      * Gets whether or not a password is enabled on this shared link.
+     *
      * @return true if there's a password enabled on this shared link; otherwise false.
      */
     public boolean getIsPasswordEnabled() {
@@ -81,6 +126,7 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Gets the time that this shared link will be deactivated.
+     *
      * @return the time that this shared link will be deactivated.
      */
     public Date getUnsharedDate() {
@@ -89,15 +135,17 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Sets the time that this shared link will be deactivated.
+     *
      * @param unsharedDate the time that this shared link will be deactivated.
      */
     public void setUnsharedDate(Date unsharedDate) {
         this.unsharedAt = unsharedDate;
-        this.addPendingChange("unshared_at", unsharedDate.toString());
+        this.addPendingChange("unshared_at", BoxDateFormat.format(unsharedDate));
     }
 
     /**
      * Gets the number of times that this shared link has been downloaded.
+     *
      * @return the number of times that this link has been downloaded.
      */
     public long getDownloadCount() {
@@ -106,6 +154,7 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Gets the number of times that this shared link has been previewed.
+     *
      * @return the number of times that this link has been previewed.
      */
     public long getPreviewCount() {
@@ -114,6 +163,7 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Gets the access level of this shared link.
+     *
      * @return the access level of this shared link.
      */
     public Access getAccess() {
@@ -122,6 +172,7 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Sets the access level of this shared link.
+     *
      * @param access the new access level of this shared link.
      */
     public void setAccess(Access access) {
@@ -130,9 +181,20 @@ public class BoxSharedLink extends BoxJSONObject {
     }
 
     /**
-     * Gets the effective access level of this shared link.
-     * @return the effective access level of this shared link.
+     * Sets the password of this shared link.
      *
+     * @param password the password of this shared link.
+     */
+    public void setPassword(String password) {
+        this.password = password;
+        this.addPendingChange("password", password);
+    }
+
+    /**
+     * Gets the effective access level of this shared link.
+     *
+     * @return the effective access level of this shared link.
+     * <p>
      * Note there is no setEffectiveAccess metho becaused this
      * cannot be changed via the API
      */
@@ -142,6 +204,7 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Gets the permissions associated with this shared link.
+     *
      * @return the permissions associated with this shared link.
      */
     public Permissions getPermissions() {
@@ -150,10 +213,11 @@ public class BoxSharedLink extends BoxJSONObject {
 
     /**
      * Sets the permissions associated with this shared link.
+     *
      * @param permissions the new permissions for this shared link.
      */
     public void setPermissions(Permissions permissions) {
-        if (this.permissions == permissions) {
+        if (this.permissions != null && this.permissions.equals(permissions)) {
             return;
         }
 
@@ -170,14 +234,17 @@ public class BoxSharedLink extends BoxJSONObject {
     @Override
     void parseJSONMember(JsonObject.Member member) {
         JsonValue value = member.getValue();
+        String memberName = member.getName();
+
         try {
-            String memberName = member.getName();
             if (memberName.equals("url")) {
                 this.url = value.asString();
             } else if (memberName.equals("download_url")) {
                 this.downloadUrl = value.asString();
             } else if (memberName.equals("vanity_url")) {
                 this.vanityUrl = value.asString();
+            } else if (memberName.equals("vanity_name")) {
+                this.vanityName = value.asString();
             } else if (memberName.equals("is_password_enabled")) {
                 this.isPasswordEnabled = value.asBoolean();
             } else if (memberName.equals("unshared_at")) {
@@ -197,78 +264,8 @@ public class BoxSharedLink extends BoxJSONObject {
                     this.permissions.update(value.asObject());
                 }
             }
-        } catch (ParseException e) {
-            assert false : "A ParseException indicates a bug in the SDK.";
-        }
-    }
-
-    /**
-     * Contains permissions fields that can be set on a shared link.
-     */
-    public static class Permissions extends BoxJSONObject {
-        private boolean canDownload;
-        private boolean canPreview;
-
-        /**
-         * Constructs a Permissions object with all permissions disabled.
-         */
-        public Permissions() { }
-
-        /**
-         * Constructs a Permissions object from a JSON string.
-         * @param  json the JSON encoded shared link permissions.
-         */
-        public Permissions(String json) {
-            super(json);
-        }
-
-        Permissions(JsonObject jsonObject) {
-            super(jsonObject);
-        }
-
-        /**
-         * Gets whether or not the shared link can be downloaded.
-         * @return true if the shared link can be downloaded; otherwise false.
-         */
-        public boolean getCanDownload() {
-            return this.canDownload;
-        }
-
-        /**
-         * Sets whether or not the shared link can be downloaded.
-         * @param enabled true if the shared link can be downloaded; otherwise false.
-         */
-        public void setCanDownload(boolean enabled) {
-            this.canDownload = enabled;
-            this.addPendingChange("can_download", enabled);
-        }
-
-        /**
-         * Gets whether or not the shared link can be previewed.
-         * @return true if the shared link can be previewed; otherwise false.
-         */
-        public boolean getCanPreview() {
-            return this.canPreview;
-        }
-
-        /**
-         * Sets whether or not the shared link can be previewed.
-         * @param enabled true if the shared link can be previewed; otherwise false.
-         */
-        public void setCanPreview(boolean enabled) {
-            this.canPreview = enabled;
-            this.addPendingChange("can_preview", enabled);
-        }
-
-        @Override
-        void parseJSONMember(JsonObject.Member member) {
-            JsonValue value = member.getValue();
-            String memberName = member.getName();
-            if (memberName.equals("can_download")) {
-                this.canDownload = value.asBoolean();
-            } else if (memberName.equals("can_preview")) {
-                this.canPreview = value.asBoolean();
-            }
+        } catch (Exception e) {
+            throw new BoxDeserializationException(memberName, value.toString(), e);
         }
     }
 
@@ -279,31 +276,170 @@ public class BoxSharedLink extends BoxJSONObject {
         /**
          * The default access level for the user or enterprise.
          */
-        DEFAULT (null),
+        DEFAULT(null),
 
         /**
          * The link can be accessed by anyone.
          */
-        OPEN ("open"),
+        OPEN("open"),
 
         /**
          * The link can be accessed by other users within the company.
          */
-        COMPANY ("company"),
+        COMPANY("company"),
 
         /**
          * The link can be accessed by other collaborators.
          */
-        COLLABORATORS ("collaborators");
+        COLLABORATORS("collaborators");
 
         private final String jsonValue;
 
-        private Access(String jsonValue) {
+        Access(String jsonValue) {
             this.jsonValue = jsonValue;
         }
 
         String toJSONValue() {
             return this.jsonValue;
+        }
+    }
+
+    /**
+     * Contains permissions fields that can be set on a shared link.
+     */
+    public static class Permissions extends BoxJSONObject {
+        private boolean canDownload;
+        private boolean canPreview;
+        private boolean canEdit;
+
+        /**
+         * Constructs a Permissions object with all permissions disabled.
+         */
+        public Permissions() {
+        }
+
+        Permissions(boolean canPreview, boolean canDownload, boolean canEdit) {
+            this.setCanPreview(canPreview);
+            this.setCanDownload(canDownload);
+            this.setCanEdit(canEdit);
+        }
+
+        /**
+         * Constructs a Permissions object from a JSON string.
+         *
+         * @param json the JSON encoded shared link permissions.
+         */
+        public Permissions(String json) {
+            super(json);
+        }
+
+        Permissions(JsonObject jsonObject) {
+            super(jsonObject);
+        }
+
+        /**
+         * Gets whether the shared link can be downloaded.
+         *
+         * @return true if the shared link can be downloaded; otherwise false.
+         */
+        public boolean getCanDownload() {
+            return this.canDownload;
+        }
+
+        /**
+         * Sets whether or not the shared link can be downloaded.
+         *
+         * @param enabled true if the shared link can be downloaded; otherwise false.
+         */
+        public void setCanDownload(boolean enabled) {
+            this.canDownload = enabled;
+            this.addPendingChange("can_download", enabled);
+        }
+
+        /**
+         * Gets whether the shared link can be previewed.
+         *
+         * @return true if the shared link can be previewed; otherwise false.
+         */
+        public boolean getCanPreview() {
+            return this.canPreview;
+        }
+
+        /**
+         * Sets whether the shared link can be previewed.
+         *
+         * @param enabled true if the shared link can be previewed; otherwise false.
+         */
+        public void setCanPreview(boolean enabled) {
+            this.canPreview = enabled;
+            this.addPendingChange("can_preview", enabled);
+        }
+
+        /**
+         * Gets whether the shared link allows for editing of files.
+         *
+         * @return true if the shared link allows for editing of files; otherwise false.
+         */
+        public boolean getCanEdit() {
+            return canEdit;
+        }
+
+        /**
+         * Sets whether the shared link allows for editing of files.
+         * For folders this value will always be set to false.
+         *
+         * @param enabled true if the shared link allows for editing of files; otherwise false.
+         */
+        public void setCanEdit(boolean enabled) {
+            this.canEdit = enabled;
+            this.addPendingChange("can_edit", enabled);
+        }
+
+        @Override
+        void parseJSONMember(JsonObject.Member member) {
+            JsonValue value = member.getValue();
+            String memberName = member.getName();
+            if (memberName.equals("can_download")) {
+                this.canDownload = value.asBoolean();
+            }
+            if (memberName.equals("can_preview")) {
+                this.canPreview = value.asBoolean();
+            }
+            if (memberName.equals("can_edit")) {
+                this.canEdit = value.asBoolean();
+            }
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || this.getClass() != o.getClass()) {
+                return false;
+            }
+
+            Permissions that = (Permissions) o;
+
+            return this.canDownload == that.canDownload
+                && this.canPreview == that.canPreview
+                && this.canEdit == that.canEdit;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = (this.canDownload ? 1 : 0);
+            result = 31 * result + (this.canPreview ? 1 : 0);
+            result = 31 * result + (this.canEdit ? 1 : 0);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "Permissions{canDownload=" + this.canDownload
+                + ", canPreview=" + this.canPreview
+                + ", canEdit=" + this.canEdit
+                + '}';
         }
     }
 }

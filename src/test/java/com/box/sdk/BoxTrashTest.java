@@ -1,179 +1,270 @@
 package com.box.sdk;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static java.lang.String.format;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
-import static org.junit.Assert.assertThat;
-
-import org.hamcrest.Matchers;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import java.io.IOException;
+import java.util.Iterator;
+import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
 public class BoxTrashTest {
-    @Test
-    @Category(IntegrationTest.class)
-    public void getAllTrashedItems() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        BoxFolder trashedFolder = rootFolder.createFolder("[getAllTrashedItems] Trashed Folder").getResource();
-        trashedFolder.delete(false);
 
-        assertThat(trash, hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(trashedFolder.getID()))));
+    @Rule
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().dynamicPort());
+    private final BoxAPIConnection api = TestUtils.getAPIConnection();
+
+    @Before
+    public void setUpBaseUrl() {
+        api.setMaxRetryAttempts(1);
+        api.setBaseURL(format("http://localhost:%d", wireMockRule.port()));
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void getTrashedFolderInfo() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String trashedFolderName = "[getTrashedFolderInfo] Trashed Folder";
-        BoxFolder trashedFolder = rootFolder.createFolder(trashedFolderName).getResource();
-        trashedFolder.delete(false);
+    public void testGetAllTrashedItemsSucceeds() throws IOException {
+        final String trashURL = "/2.0/folders/trash/items/";
+        final String firstTrashID = "12345";
+        final String firstTrashName = "Test Folder";
+        final String secondTrashID = "32343";
+        final String secondTrashName = "File.pdf";
 
-        BoxFolder.Info info = trash.getFolderInfo(trashedFolder.getID());
+        String result = TestUtils.getFixture("BoxTrash/GetAllTrashItems200");
 
-        assertThat(info.getName(), is(equalTo(trashedFolderName)));
-        assertThat(info.getItemStatus(), is(equalTo("trashed")));
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(trashURL))
+            .withQueryParam("limit", WireMock.containing("1000"))
+            .withQueryParam("usemarker", WireMock.containing("true"))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxTrash trash = new BoxTrash(this.api);
+        Iterator<BoxItem.Info> trashEntries = trash.iterator();
+        BoxItem.Info firstTrashItem = trashEntries.next();
+
+        assertEquals(firstTrashID, firstTrashItem.getID());
+        assertEquals(firstTrashName, firstTrashItem.getName());
+
+        BoxItem.Info secondTrashItem = trashEntries.next();
+
+        assertEquals(secondTrashID, secondTrashItem.getID());
+        assertEquals(secondTrashName, secondTrashItem.getName());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void permanentlyDeleteTrashedFolder() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String folderName = "[permanentlyDeleteTrashedFolder] Trashed Folder";
+    public void testRestoreFolderFromTrashSucceeds() throws IOException {
+        final String folderID = "12345";
+        final String restoreFolderURL = "/2.0/folders/" + folderID;
+        final String folderName = "Test Folder";
+        final String createdByName = "Test User";
+        final String parentFolderName = "All Files";
 
-        BoxFolder folder = rootFolder.createFolder(folderName).getResource();
-        folder.delete(false);
-        trash.deleteFolder(folder.getID());
+        String result = TestUtils.getFixture("BoxTrash/RestoreFolderItemFromTrash201");
 
-        assertThat(trash, not(hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(folder.getID())))));
+        wireMockRule.stubFor(WireMock.post(WireMock.urlPathEqualTo(restoreFolderURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxTrash trash = new BoxTrash(this.api);
+        BoxFolder.Info restoredFolder = trash.restoreFolder(folderID);
+
+        assertEquals(folderID, restoredFolder.getID());
+        assertEquals(folderName, restoredFolder.getName());
+        assertEquals(createdByName, restoredFolder.getCreatedBy().getName());
+        assertEquals(parentFolderName, restoredFolder.getParent().getName());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void restoreTrashedFolderSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String folderName = "[restoreTrashedFolderWithNewNameSucceeds] Trashed Folder";
+    public void testRestoreFileFromTrashSucceeds() throws IOException {
+        final String fileID = "12345";
+        final String restoreFileURL = "/2.0/files/" + fileID;
+        final String fileName = "File.pdf";
+        final String pathCollectionName = "All Files";
+        final String createdByName = "Test User";
+        final String parentFolderName = "Test Folder";
 
-        BoxFolder folder = rootFolder.createFolder(folderName).getResource();
-        folder.delete(false);
-        BoxFolder.Info restoredFolderInfo = trash.restoreFolder(folder.getID());
+        String result = TestUtils.getFixture("BoxTrash/RestoreFileItemFromTrash201");
 
-        assertThat(trash, not(hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(folder.getID())))));
-        assertThat(rootFolder, hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(folder.getID()))));
+        wireMockRule.stubFor(WireMock.post(WireMock.urlPathEqualTo(restoreFileURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
-        folder.delete(false);
+        BoxTrash trash = new BoxTrash(this.api);
+        BoxFile.Info restoredFile = trash.restoreFile(fileID);
+
+        assertEquals(fileID, restoredFile.getID());
+        assertEquals(fileName, restoredFile.getName());
+        assertEquals(pathCollectionName, restoredFile.getPathCollection().get(0).getName());
+        assertEquals(createdByName, restoredFile.getCreatedBy().getName());
+        assertEquals(parentFolderName, restoredFile.getParent().getName());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void restoreTrashedFolderWithNewNameSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String folderName = "[restoreTrashedFolderWithNewNameSucceeds] Trashed Folder";
-        String restoredFolderName = "[restoreTrashedFolderWithNewNameSucceeds] Trashed Folder";
+    public void testGetTrashedFolderItemInfoSucceeds() throws IOException {
+        final String folderID = "12345";
+        final String trashURL = "/2.0/folders/" + folderID + "/trash";
+        final String folderName = "Another retention test";
+        final String createdByLogin = "test@user.com";
+        final String modifiedByName = "Test User";
+        final String ownedByID = "1111";
 
-        BoxFolder folder = rootFolder.createFolder(folderName).getResource();
-        folder.delete(false);
-        BoxFolder.Info restoredFolderInfo = trash.restoreFolder(folder.getID(), restoredFolderName, null);
+        String result = TestUtils.getFixture("BoxTrash/GetTrashedFolderItemInfo200");
 
-        assertThat(restoredFolderInfo.getName(), is(equalTo(restoredFolderName)));
-        assertThat(trash, not(hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(folder.getID())))));
-        assertThat(rootFolder, hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(folder.getID()))));
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(trashURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
-        folder.delete(false);
+        BoxTrash trash = new BoxTrash(this.api);
+        BoxFolder.Info folderInfo = trash.getFolderInfo(folderID);
+
+        assertEquals(folderName, folderInfo.getName());
+        assertEquals(createdByLogin, folderInfo.getCreatedBy().getLogin());
+        assertEquals(modifiedByName, folderInfo.getModifiedBy().getName());
+        assertEquals(ownedByID, folderInfo.getOwnedBy().getID());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void getTrashedFileInfo() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[getTrashedFileInfo] Trashed File.txt";
-        String fileContent = "Trashed file";
-        byte[] fileBytes = fileContent.getBytes(StandardCharsets.UTF_8);
+    public void testGetTrashedFileItemInfoSucceeds() throws IOException {
+        final String fileID = "12345";
+        final String trashURL = "/2.0/files/" + fileID + "/trash";
+        final String folderName = "File.pdf";
+        final String createdByLogin = "test@user.com";
+        final String modifiedByName = "Test User";
+        final String ownedByID = "1111";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        uploadedFile.delete();
+        String result = TestUtils.getFixture("BoxTrash/GetTrashedFileItemInfo200");
 
-        BoxFile.Info trashedFileInfo = trash.getFileInfo(uploadedFile.getID());
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(trashURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
-        assertThat(trashedFileInfo.getName(), is(equalTo(fileName)));
-        assertThat(trashedFileInfo.getItemStatus(), is(equalTo("trashed")));
+        BoxTrash trash = new BoxTrash(this.api);
+        BoxFile.Info fileInfo = trash.getFileInfo(fileID);
+
+        assertEquals(folderName, fileInfo.getName());
+        assertEquals(createdByLogin, fileInfo.getCreatedBy().getLogin());
+        assertEquals(modifiedByName, fileInfo.getModifiedBy().getName());
+        assertEquals(ownedByID, fileInfo.getOwnedBy().getID());
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void permanentlyDeleteTrashedFile() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[permanentlyDeleteTrashedFile] Trashed File.txt";
-        String fileContent = "Trashed file";
-        byte[] fileBytes = fileContent.getBytes(StandardCharsets.UTF_8);
+    public void testPermanentlyDeleteFolderFromTrash() {
+        final String folderID = "12345";
+        final String deleteFolderURL = "/2.0/folders/" + folderID + "/trash";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        uploadedFile.delete();
-        trash.deleteFile(uploadedFile.getID());
+        wireMockRule.stubFor(WireMock.delete(WireMock.urlPathEqualTo(deleteFolderURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withStatus(204)));
 
-        assertThat(trash, not(hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(uploadedFile.getID())))));
+        BoxTrash trash = new BoxTrash(this.api);
+        trash.deleteFolder(folderID);
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void restoreTrashedFileSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[restoreTrashedFileSucceeds] Trashed File.txt";
-        String fileContent = "Trashed file";
-        byte[] fileBytes = fileContent.getBytes(StandardCharsets.UTF_8);
+    public void testPermanentlyDeleteFileFromTrash() {
+        final String fileID = "12345";
+        final String deleteFileURL = "/2.0/files/" + fileID + "/trash";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        uploadedFile.delete();
-        trash.restoreFile(uploadedFile.getID());
+        wireMockRule.stubFor(WireMock.delete(WireMock.urlPathEqualTo(deleteFileURL))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withStatus(204)));
 
-        assertThat(trash, not(hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(uploadedFile.getID())))));
-        assertThat(rootFolder, hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(uploadedFile.getID()))));
-
-        uploadedFile.delete();
+        BoxTrash trash = new BoxTrash(this.api);
+        trash.deleteFile(fileID);
     }
 
     @Test
-    @Category(IntegrationTest.class)
-    public void restoreTrashedFileWithNewNameSucceeds() {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxTrash trash = new BoxTrash(api);
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[restoreTrashedFileWithNewNameSucceeds] Trashed File.txt";
-        String restoredFileName = "[restoreTrashedFileWithNewNameSucceeds] Restored File.txt";
-        String fileContent = "Trashed file";
-        byte[] fileBytes = fileContent.getBytes(StandardCharsets.UTF_8);
+    public void testGetAllTrashedItemsWithOrderAndOffsetAndLimit() throws IOException {
+        final String trashURL = "/2.0/folders/trash/items/";
+        final String firstTrashID = "12345";
+        final String firstTrashName = "Test Folder";
+        final String secondTrashID = "32343";
+        final String secondTrashName = "File.pdf";
 
-        InputStream uploadStream = new ByteArrayInputStream(fileBytes);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        uploadedFile.delete();
-        BoxFile.Info restoredFileInfo = trash.restoreFile(uploadedFile.getID(), restoredFileName, null);
+        String result = TestUtils.getFixture("BoxTrash/GetAllTrashItems200");
 
-        assertThat(restoredFileInfo.getName(), is(equalTo(restoredFileName)));
-        assertThat(trash, not(hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(uploadedFile.getID())))));
-        assertThat(rootFolder, hasItem(Matchers.<BoxItem.Info>hasProperty("ID", equalTo(uploadedFile.getID()))));
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(trashURL))
+            .withQueryParam("limit", WireMock.containing("500"))
+            .withQueryParam("offset", WireMock.containing("100"))
+            .withQueryParam("sort", WireMock.containing("name"))
+            .withQueryParam("direction", WireMock.containing("DESC"))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
 
-        uploadedFile.delete();
+        BoxTrash trash = new BoxTrash(this.api);
+        Iterable<BoxItem.Info> trashEntries = trash.items(
+            SortParameters.descending("name"),
+            PagingParameters.offset(100, 500)
+        );
+        Iterator<BoxItem.Info> iterator = trashEntries.iterator();
+        BoxItem.Info firstTrashItem = iterator.next();
+
+        assertEquals(firstTrashID, firstTrashItem.getID());
+        assertEquals(firstTrashName, firstTrashItem.getName());
+
+        BoxItem.Info secondTrashItem = iterator.next();
+
+        assertEquals(secondTrashID, secondTrashItem.getID());
+        assertEquals(secondTrashName, secondTrashItem.getName());
+    }
+
+    @Test
+    public void testGetAllTrashedItemsWithStreamPositionAndLimit() throws IOException {
+        final String trashURL = "/2.0/folders/trash/items/";
+        final String firstTrashID = "12345";
+        final String firstTrashName = "Test Folder";
+        final String secondTrashID = "32343";
+        final String secondTrashName = "File.pdf";
+
+        String result = TestUtils.getFixture("BoxTrash/GetAllTrashItemsUsingmarker200");
+
+        wireMockRule.stubFor(WireMock.get(WireMock.urlPathEqualTo(trashURL))
+            .withQueryParam("limit", WireMock.equalTo("500"))
+            .withQueryParam("usemarker", WireMock.equalTo("true"))
+            .willReturn(WireMock.aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody(result)));
+
+        BoxTrash trash = new BoxTrash(this.api);
+        Iterable<BoxItem.Info> trashEntries = trash.items(
+            SortParameters.none(),
+            PagingParameters.marker(500)
+        );
+
+        Iterator<BoxItem.Info> iterator = trashEntries.iterator();
+        BoxItem.Info firstTrashItem = iterator.next();
+
+        assertEquals(firstTrashID, firstTrashItem.getID());
+        assertEquals(firstTrashName, firstTrashItem.getName());
+
+        BoxItem.Info secondTrashItem = iterator.next();
+
+        assertEquals(secondTrashID, secondTrashItem.getID());
+        assertEquals(secondTrashName, secondTrashItem.getName());
+    }
+
+    @Test
+    public void testGetAllTrashedItemsFailsWithOrderAndStreamPosition() {
+
+        BoxTrash trash = new BoxTrash(this.api);
+        assertThrows(
+            "Sorting is not supported when using marker based pagination.",
+            IllegalArgumentException.class,
+            () -> trash.items(
+                SortParameters.ascending("name"),
+                PagingParameters.marker(500)
+            )
+        );
     }
 }
